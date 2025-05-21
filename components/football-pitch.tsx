@@ -4,9 +4,10 @@ import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
 import html2canvas from "html2canvas"
-import type { Team, Player, DrawingMode } from "@/lib/types"
+import type { Team, Player, DrawingMode, FieldType } from "@/lib/types"
 import PlayerMarker from "@/components/player-marker"
 import DrawingTools from "@/components/drawing-tools"
+import { getPlayerPositionByFormation } from "@/lib/formations"
 
 interface FootballPitchProps {
   homeTeam: Team
@@ -14,6 +15,7 @@ interface FootballPitchProps {
   drawingMode: DrawingMode
   onUpdatePlayer: (player: Player) => void
   canDragPlayers: boolean
+  fieldType?: FieldType
 }
 
 export default function FootballPitch({
@@ -22,6 +24,7 @@ export default function FootballPitch({
   drawingMode,
   onUpdatePlayer,
   canDragPlayers = false,
+  fieldType = "11",
 }: FootballPitchProps) {
   const pitchRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -33,132 +36,44 @@ export default function FootballPitch({
   const [strokeWidth, setStrokeWidth] = useState(3)
   const [strokeColor, setStrokeColor] = useState("#ffff00")
 
-  // Khởi tạo vị trí cho cầu thủ mới và tránh chồng lấp
+  // Khởi tạo vị trí cho cầu thủ dựa trên đội hình đã chọn
   useEffect(() => {
-    const allPlayers = [...homeTeam.players, ...awayTeam.players].filter((p) => !p.isSubstitute)
     const newPositions = { ...positions }
 
-    // Tạo bản đồ vị trí đã sử dụng để tránh chồng lấp
-    const usedPositions: { x: number; y: number }[] = []
-    const minDistance = 40 // Khoảng cách tối thiểu giữa các cầu thủ
-
-    allPlayers.forEach((player) => {
-      if (!newPositions[player.id]) {
-        // Đặt vị trí mặc định dựa trên vai trò cầu thủ và đội
-        const isHome = player.id.startsWith("home") || player.id.startsWith("player")
-
-        // Lấy vị trí ban đầu
-        let position = getPlayerPosition(player.position, isHome ? "home" : "away")
-
-        // Kiểm tra và điều chỉnh vị trí để tránh chồng lấp
-        position = findNonOverlappingPosition(position, usedPositions, minDistance)
-
-        // Lưu vị trí đã sử dụng
-        usedPositions.push(position)
-
-        // Cập nhật vị trí cho cầu thủ
-        newPositions[player.id] = position
-      } else {
-        // Nếu cầu thủ đã có vị trí, thêm vào danh sách vị trí đã sử dụng
-        usedPositions.push(newPositions[player.id])
+    // Xử lý cầu thủ đội nhà
+    homeTeam.players.filter(p => !p.isSubstitute).forEach(player => {
+      if (player.positionKey) {
+        // Lấy vị trí theo sơ đồ
+        const positionFromFormation = getPlayerPositionByFormation(
+          homeTeam.formation || '4-4-2', 
+          player.positionKey, 
+          "home", 
+          fieldType
+        );
+        if (positionFromFormation) {
+          newPositions[player.id] = positionFromFormation;
+        }
       }
-    })
+    });
 
-    setPositions(newPositions)
-  }, [homeTeam.players, awayTeam.players])
-
-  // Hàm tìm vị trí không chồng lấp
-  const findNonOverlappingPosition = (
-    position: { x: number; y: number },
-    usedPositions: { x: number; y: number }[],
-    minDistance: number,
-  ): { x: number; y: number } => {
-    // Nếu không có vị trí nào đã sử dụng, trả về vị trí ban đầu
-    if (usedPositions.length === 0) return position
-
-    // Kiểm tra xem vị trí có chồng lấp với bất kỳ vị trí nào đã sử dụng không
-    const isOverlapping = usedPositions.some((usedPos) => {
-      const distance = Math.sqrt(Math.pow(position.x - usedPos.x, 2) + Math.pow(position.y - usedPos.y, 2))
-      return distance < minDistance
-    })
-
-    // Nếu không chồng lấp, trả về vị trí ban đầu
-    if (!isOverlapping) return position
-
-    // Nếu chồng lấp, tìm vị trí mới
-    const maxAttempts = 10
-    let attempts = 0
-    let newPosition = { ...position }
-
-    while (attempts < maxAttempts) {
-      // Tạo vị trí mới với một offset ngẫu nhiên
-      const offsetX = (Math.random() - 0.5) * minDistance
-      const offsetY = (Math.random() - 0.5) * minDistance
-
-      newPosition = {
-        x: position.x + offsetX,
-        y: position.y + offsetY,
+    // Xử lý cầu thủ đội khách - đảm bảo họ nằm ở phía đối diện sân
+    awayTeam.players.filter(p => !p.isSubstitute).forEach(player => {
+      if (player.positionKey) {
+        // Lấy vị trí theo sơ đồ
+        const positionFromFormation = getPlayerPositionByFormation(
+          awayTeam.formation || '4-4-2', 
+          player.positionKey, 
+          "away", 
+          fieldType
+        );
+        if (positionFromFormation) {
+          newPositions[player.id] = positionFromFormation;
+        }
       }
+    });
 
-      // Đảm bảo vị trí mới nằm trong giới hạn sân
-      newPosition.x = Math.max(30, Math.min(470, newPosition.x))
-      newPosition.y = Math.max(30, Math.min(470, newPosition.y))
-
-      // Kiểm tra xem vị trí mới có chồng lấp không
-      const stillOverlapping = usedPositions.some((usedPos) => {
-        const distance = Math.sqrt(Math.pow(newPosition.x - usedPos.x, 2) + Math.pow(newPosition.y - usedPos.y, 2))
-        return distance < minDistance
-      })
-
-      if (!stillOverlapping) return newPosition
-
-      attempts++
-    }
-
-    // Nếu không tìm được vị trí không chồng lấp sau nhiều lần thử, trả về vị trí ban đầu
-    return position
-  }
-
-  // Hàm định vị cầu thủ dựa trên vị trí và đội
-  const getPlayerPosition = (position: string, team: "home" | "away") => {
-    // Kích thước sân
-    const pitchWidth = 500
-    const pitchHeight = 500
-
-    // Tính toán vị trí dựa trên tỷ lệ phần trăm của sân
-    const getCoordinates = (xPercent: number, yPercent: number) => {
-      return {
-        x: (pitchWidth * xPercent) / 100,
-        y: (pitchHeight * yPercent) / 100,
-      }
-    }
-
-    // Đảo ngược vị trí nếu là đội khách
-    const isHome = team === "home"
-
-    switch (position) {
-      case "GK":
-        return getCoordinates(isHome ? 10 : 90, 50)
-      case "LB":
-        return getCoordinates(isHome ? 20 : 80, 20)
-      case "CB":
-        return getCoordinates(isHome ? 20 : 80, 50)
-      case "RB":
-        return getCoordinates(isHome ? 20 : 80, 80)
-      case "DMF":
-        return getCoordinates(isHome ? 35 : 65, 50)
-      case "CMF":
-        return getCoordinates(isHome ? 50 : 50, 50)
-      case "LWF":
-        return getCoordinates(isHome ? 70 : 30, 20)
-      case "CF":
-        return getCoordinates(isHome ? 75 : 25, 50)
-      case "RWF":
-        return getCoordinates(isHome ? 70 : 30, 80)
-      default:
-        return getCoordinates(isHome ? 50 : 50, 50)
-    }
-  }
+    setPositions(newPositions);
+  }, [homeTeam.players, awayTeam.players, fieldType, homeTeam.formation, awayTeam.formation]);
 
   // Xử lý vẽ
   useEffect(() => {

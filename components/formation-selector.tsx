@@ -1,15 +1,18 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import type { Formation } from "@/lib/types"
+import type { Formation, FieldType } from "@/lib/types"
+import { getFormationsForFieldType } from "@/lib/formations"
 
 interface FormationSelectorProps {
   selectedFormation: Formation
   onFormationChange: (formation: Formation) => void
+  fieldType?: FieldType
 }
 
-export default function FormationSelector({ selectedFormation, onFormationChange }: FormationSelectorProps) {
-  const formations: Formation[] = ["4-4-2", "4-3-3", "3-5-2", "5-3-2", "4-2-3-1", "3-4-3"]
+export default function FormationSelector({ selectedFormation, onFormationChange, fieldType = "11" }: FormationSelectorProps) {
+  // Lấy danh sách đội hình phù hợp với loại sân
+  const formations = getFormationsForFieldType(fieldType)
 
   return (
     <div className="grid grid-cols-3 gap-2">

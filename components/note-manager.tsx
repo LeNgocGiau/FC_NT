@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import type { Note } from "@/lib/types"
+import ConfirmDeleteDialog from "@/components/confirm-delete-dialog"
 
 interface NoteManagerProps {
   notes: Note[]
@@ -72,9 +73,18 @@ export default function NoteManager({ notes, onAddNote, onUpdateNote, onDeleteNo
     setEditingNote(null)
   }
 
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [noteIdToDelete, setNoteIdToDelete] = useState<string | null>(null)
+
   const handleDeleteNote = (id: string) => {
-    if (confirm("Bạn có chắc chắn muốn xóa ghi chú này?")) {
-      onDeleteNote(id)
+    setNoteIdToDelete(id)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const confirmDeleteNote = () => {
+    if (noteIdToDelete) {
+      onDeleteNote(noteIdToDelete)
+      setNoteIdToDelete(null)
     }
   }
 
@@ -221,6 +231,14 @@ export default function NoteManager({ notes, onAddNote, onUpdateNote, onDeleteNo
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDeleteDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        title="Xác nhận xóa ghi chú"
+        description="Bạn có chắc chắn muốn xóa ghi chú này? Hành động này không thể hoàn tác."
+        onConfirm={confirmDeleteNote}
+      />
     </div>
   )
 }

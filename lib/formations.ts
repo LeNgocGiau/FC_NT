@@ -1,4 +1,4 @@
-import type { Formation, Player, Position } from "@/lib/types"
+import type { Formation, Player, Position, FieldType } from "@/lib/types"
 
 // Định nghĩa vị trí chuẩn cho từng sơ đồ chiến thuật
 const formationPositions: Record<Formation, Record<string, { x: number; y: number }>> = {
@@ -90,316 +90,191 @@ function mapAwayPosition(position: { x: number; y: number }): { x: number; y: nu
   }
 }
 
-export function generatePlayersFromFormation(formation: Formation, teamColor: string, teamId: string): Player[] {
+// Định nghĩa đội hình mặc định cho từng loại sân
+const fieldTypeFormations: Record<FieldType, Formation[]> = {
+  "5": ["3-1", "2-1-1", "2-2"],
+  "7": ["3-2-1", "3-3", "2-3-1"],
+  "11": ["4-4-2", "4-3-3", "3-5-2", "5-3-2", "4-2-3-1", "3-4-3"] as Formation[]
+}
+
+// Định nghĩa vị trí cho sân 5 người
+const field5Positions: Record<string, Record<string, { x: number; y: number }>> = {
+  "3-1": {
+    GK: { x: 10, y: 50 },
+    CB1: { x: 30, y: 30 },
+    CB2: { x: 30, y: 50 },
+    CB3: { x: 30, y: 70 },
+    CMF: { x: 60, y: 50 },
+    CF: { x: 80, y: 50 },
+  },
+  "2-1-1": {
+    GK: { x: 10, y: 50 },
+    CB1: { x: 30, y: 30 },
+    CB2: { x: 30, y: 70 },
+    CMF: { x: 60, y: 50 },
+    CF1: { x: 80, y: 30 },
+    CF2: { x: 80, y: 70 },
+  },
+  "2-2": {
+    GK: { x: 10, y: 50 },
+    CB1: { x: 30, y: 30 },
+    CB2: { x: 30, y: 70 },
+    CMF1: { x: 60, y: 30 },
+    CMF2: { x: 60, y: 70 },
+    CF: { x: 80, y: 50 },
+  }
+}
+
+// Định nghĩa vị trí cho sân 7 người
+const field7Positions: Record<string, Record<string, { x: number; y: number }>> = {
+  "3-2-1": {
+    GK: { x: 10, y: 50 },
+    CB1: { x: 25, y: 30 },
+    CB2: { x: 25, y: 50 },
+    CB3: { x: 25, y: 70 },
+    CMF1: { x: 50, y: 35 },
+    CMF2: { x: 50, y: 65 },
+    CF1: { x: 75, y: 35 },
+    CF2: { x: 75, y: 65 },
+  },
+  "3-3": {
+    GK: { x: 10, y: 50 },
+    CB1: { x: 25, y: 30 },
+    CB2: { x: 25, y: 50 },
+    CB3: { x: 25, y: 70 },
+    CMF1: { x: 50, y: 30 },
+    CMF2: { x: 50, y: 50 },
+    CMF3: { x: 50, y: 70 },
+    CF: { x: 75, y: 50 },
+  },
+  "2-3-1": {
+    GK: { x: 10, y: 50 },
+    CB1: { x: 25, y: 35 },
+    CB2: { x: 25, y: 65 },
+    CMF1: { x: 50, y: 30 },
+    CMF2: { x: 50, y: 50 },
+    CMF3: { x: 50, y: 70 },
+    CF1: { x: 75, y: 35 },
+    CF2: { x: 75, y: 65 },
+  }
+}
+
+// Lấy danh sách đội hình cho loại sân
+export function getFormationsForFieldType(fieldType: FieldType): Formation[] {
+  return fieldTypeFormations[fieldType];
+}
+
+// Lấy vị trí cho đội hình dựa trên loại sân
+export function getPositionsForFormation(formation: Formation, fieldType: FieldType): Record<string, { x: number; y: number }> | undefined {
+  if (fieldType === "5") {
+    return field5Positions[formation as keyof typeof field5Positions];
+  } else if (fieldType === "7") {
+    return field7Positions[formation as keyof typeof field7Positions];
+  } else {
+    return formationPositions[formation as keyof typeof formationPositions];
+  }
+}
+
+export function generatePlayersFromFormation(formation: Formation, teamColor: string, teamId: string, fieldType: FieldType = "11"): Player[] {
   const players: Player[] = []
   const prefix = teamId || "player"
   const isHome = teamId === "home"
 
-  // Lấy vị trí chuẩn cho sơ đồ
-  const positions = formationPositions[formation]
+  // Lấy vị trí dựa trên loại sân và đội hình
+  let positions;
+  if (fieldType === "5") {
+    positions = field5Positions[formation as keyof typeof field5Positions];
+  } else if (fieldType === "7") {
+    positions = field7Positions[formation as keyof typeof field7Positions];
+  } else {
+    positions = formationPositions[formation as keyof typeof formationPositions];
+  }
 
-  // Thủ môn
-  players.push({
-    id: `${prefix}-gk`,
-    position: "GK",
-    name: "Thủ môn",
-    color: teamColor,
-    image: "",
-    positionKey: "GK",
-  })
-
-  // Phân tích sơ đồ
-  const parts = formation.split("-").map(Number)
-
-  // Hậu vệ
-  const defenders = parts[0]
-  for (let i = 0; i < defenders; i++) {
-    let position: Position
-    let name: string
-    let positionKey: string
-
-    if (defenders === 4) {
-      if (i === 0) {
-        position = "LB"
-        name = "Hậu vệ trái"
-        positionKey = "LB"
-      } else if (i === 1) {
-        position = "CB"
-        name = "Trung vệ 1"
-        positionKey = "CB1"
-      } else if (i === 2) {
-        position = "CB"
-        name = "Trung vệ 2"
-        positionKey = "CB2"
-      } else {
-        position = "RB"
-        name = "Hậu vệ phải"
-        positionKey = "RB"
-      }
-    } else if (defenders === 3) {
-      if (i === 0) {
-        position = "CB"
-        name = "Trung vệ trái"
-        positionKey = "CB1"
-      } else if (i === 1) {
-        position = "CB"
-        name = "Trung vệ giữa"
-        positionKey = "CB2"
-      } else {
-        position = "CB"
-        name = "Trung vệ phải"
-        positionKey = "CB3"
-      }
-    } else if (defenders === 5) {
-      if (i === 0) {
-        position = "LB"
-        name = "Hậu vệ cánh trái"
-        positionKey = "LWB"
-      } else if (i === 1) {
-        position = "CB"
-        name = "Trung vệ trái"
-        positionKey = "CB1"
-      } else if (i === 2) {
-        position = "CB"
-        name = "Trung vệ giữa"
-        positionKey = "CB2"
-      } else if (i === 3) {
-        position = "CB"
-        name = "Trung vệ phải"
-        positionKey = "CB3"
-      } else {
-        position = "RB"
-        name = "Hậu vệ cánh phải"
-        positionKey = "RWB"
-      }
-    } else {
-      position = "CB"
-      name = `Trung vệ ${i + 1}`
-      positionKey = `CB${i + 1}`
+  // Xác định số lượng cầu thủ tối đa dựa trên loại sân
+  const maxPlayers = fieldType === "5" ? 5 : fieldType === "7" ? 7 : 11;
+  
+  // Tạo cầu thủ dựa trên vị trí
+  let playerNumber = 1;
+  
+  // Duyệt qua tất cả các vị trí trong đội hình đã chọn
+  for (const [positionKey, position] of Object.entries(positions)) {
+    // Kiểm tra số lượng cầu thủ đã đủ chưa
+    if (players.length >= maxPlayers) break;
+    // Xác định vị trí thực tế (GK, CB, etc.)
+    let actualPosition: Position = "GK";
+    if (positionKey === "GK") {
+      actualPosition = "GK";
+    } else if (positionKey.startsWith("CB")) {
+      actualPosition = "CB";
+    } else if (positionKey.startsWith("LB") || positionKey === "LWB") {
+      actualPosition = "LB";
+    } else if (positionKey.startsWith("RB") || positionKey === "RWB") {
+      actualPosition = "RB";
+    } else if (positionKey.startsWith("DMF")) {
+      actualPosition = "DMF";
+    } else if (positionKey.startsWith("CMF") || positionKey.startsWith("CM") || positionKey === "AMF") {
+      actualPosition = "CMF";
+    } else if (positionKey.startsWith("LWF") || positionKey.startsWith("LM")) {
+      actualPosition = "LWF";
+    } else if (positionKey.startsWith("RWF") || positionKey.startsWith("RM")) {
+      actualPosition = "RWF";
+    } else if (positionKey.startsWith("CF") || positionKey.startsWith("ST")) {
+      actualPosition = "CF";
     }
-
+    
+    // Tạo tên hiển thị cho cầu thủ dựa vào vị trí
+    let displayName = `Cầu thủ ${playerNumber}`;
+    if (positionKey === "GK") {
+      displayName = "Thủ môn";
+    } else if (positionKey.startsWith("CB")) {
+      displayName = `Trung vệ ${positionKey.replace("CB", "") || ""}`;
+    } else if (positionKey === "LWB" || positionKey === "LB") {
+      displayName = "Hậu vệ cánh trái";
+    } else if (positionKey === "RWB" || positionKey === "RB") {
+      displayName = "Hậu vệ cánh phải";
+    } else if (positionKey.startsWith("DMF")) {
+      displayName = "Tiền vệ phòng ngự";
+    } else if (positionKey.startsWith("CMF") || positionKey.startsWith("CM")) {
+      displayName = `Tiền vệ trung tâm ${positionKey.replace("CMF", "").replace("CM", "") || ""}`;
+    } else if (positionKey === "AMF") {
+      displayName = "Tiền vệ tấn công";
+    } else if (positionKey === "LWF" || positionKey === "LM") {
+      displayName = "Tiền đạo cánh trái";
+    } else if (positionKey === "RWF" || positionKey === "RM") {
+      displayName = "Tiền đạo cánh phải";
+    } else if (positionKey === "CF") {
+      displayName = "Tiền đạo trung tâm";
+    } else if (positionKey.startsWith("ST")) {
+      displayName = `Tiền đạo ${positionKey.replace("ST", "") || ""}`;
+    }
+    
+    // Tạo cầu thủ mới
     players.push({
-      id: `${prefix}-def-${i}`,
-      position,
-      name,
+      id: `${prefix}-${playerNumber}`,
+      position: actualPosition,
+      name: displayName,
       color: teamColor,
       image: "",
-      positionKey,
+      number: playerNumber,
+      positionKey: positionKey,
     })
+    
+    playerNumber++;
   }
-
-  // Tiền vệ
-  const midfielders = parts[1]
-  for (let i = 0; i < midfielders; i++) {
-    let position: Position
-    let name: string
-    let positionKey: string
-
-    if (formation === "4-4-2") {
-      if (i === 0) {
-        position = "LWF"
-        name = "Tiền vệ cánh trái"
-        positionKey = "LM"
-      } else if (i === 1) {
-        position = "CMF"
-        name = "Tiền vệ trung tâm 1"
-        positionKey = "CM1"
-      } else if (i === 2) {
-        position = "CMF"
-        name = "Tiền vệ trung tâm 2"
-        positionKey = "CM2"
-      } else {
-        position = "RWF"
-        name = "Tiền vệ cánh phải"
-        positionKey = "RM"
-      }
-    } else if (formation === "4-3-3") {
-      if (i === 0) {
-        position = "DMF"
-        name = "Tiền vệ phòng ngự"
-        positionKey = "DMF"
-      } else if (i === 1) {
-        position = "CMF"
-        name = "Tiền vệ trung tâm 1"
-        positionKey = "CMF1"
-      } else {
-        position = "CMF"
-        name = "Tiền vệ trung tâm 2"
-        positionKey = "CMF2"
-      }
-    } else if (formation === "3-5-2") {
-      if (i === 0) {
-        position = "LWF"
-        name = "Tiền vệ cánh trái"
-        positionKey = "LWB"
-      } else if (i === 1) {
-        position = "DMF"
-        name = "Tiền vệ phòng ngự"
-        positionKey = "DMF"
-      } else if (i === 2) {
-        position = "RWF"
-        name = "Tiền vệ cánh phải"
-        positionKey = "RWB"
-      } else if (i === 3) {
-        position = "CMF"
-        name = "Tiền vệ trung tâm 1"
-        positionKey = "CMF1"
-      } else {
-        position = "CMF"
-        name = "Tiền vệ trung tâm 2"
-        positionKey = "CMF2"
-      }
-    } else if (formation === "4-2-3-1" && midfielders === 2) {
-      if (i === 0) {
-        position = "DMF"
-        name = "Tiền vệ phòng ngự 1"
-        positionKey = "DMF1"
-      } else {
-        position = "DMF"
-        name = "Tiền vệ phòng ngự 2"
-        positionKey = "DMF2"
-      }
-    } else {
-      position = "CMF"
-      name = `Tiền vệ trung tâm ${i + 1}`
-      positionKey = `CM${i + 1}`
-    }
-
-    players.push({
-      id: `${prefix}-mid-${i}`,
-      position,
-      name,
-      color: teamColor,
-      image: "",
-      positionKey,
-    })
-  }
-
-  // Tiền đạo
-  const forwards = parts[2] || 0
-  for (let i = 0; i < forwards; i++) {
-    let position: Position
-    let name: string
-    let positionKey: string
-
-    if (formation === "4-3-3") {
-      if (i === 0) {
-        position = "LWF"
-        name = "Tiền đạo cánh trái"
-        positionKey = "LWF"
-      } else if (i === 1) {
-        position = "CF"
-        name = "Tiền đạo trung tâm"
-        positionKey = "CF"
-      } else {
-        position = "RWF"
-        name = "Tiền đạo cánh phải"
-        positionKey = "RWF"
-      }
-    } else if (formation === "4-4-2" || formation === "3-5-2" || formation === "5-3-2") {
-      if (i === 0) {
-        position = "CF"
-        name = "Tiền đạo 1"
-        positionKey = "ST1"
-      } else {
-        position = "CF"
-        name = "Tiền đạo 2"
-        positionKey = "ST2"
-      }
-    } else if (formation === "3-4-3") {
-      if (i === 0) {
-        position = "LWF"
-        name = "Tiền đạo cánh trái"
-        positionKey = "LWF"
-      } else if (i === 1) {
-        position = "CF"
-        name = "Tiền đạo trung tâm"
-        positionKey = "CF"
-      } else {
-        position = "RWF"
-        name = "Tiền đạo cánh phải"
-        positionKey = "RWF"
-      }
-    } else {
-      position = "CF"
-      name = `Tiền đạo ${i + 1}`
-      positionKey = `ST${i + 1}`
-    }
-
-    players.push({
-      id: `${prefix}-fwd-${i}`,
-      position,
-      name,
-      color: teamColor,
-      image: "",
-      positionKey,
-    })
-  }
-
-  // Nếu có phần thứ 4 (như trong 4-2-3-1)
-  if (parts[3]) {
-    const additionalForwards = parts[3]
-    for (let i = 0; i < additionalForwards; i++) {
-      let position: Position
-      let name: string
-      let positionKey: string
-
-      if (formation === "4-2-3-1") {
-        if (i === 0) {
-          position = "LWF"
-          name = "Tiền đạo cánh trái"
-          positionKey = "LWF"
-        } else if (i === 1) {
-          position = "CF"
-          name = "Tiền vệ tấn công"
-          positionKey = "AMF"
-        } else {
-          position = "RWF"
-          name = "Tiền đạo cánh phải"
-          positionKey = "RWF"
-        }
-      } else {
-        position = "CF"
-        name = `Tiền đạo ${i + 1}`
-        positionKey = `ST${i + 1}`
-      }
-
-      players.push({
-        id: `${prefix}-add-fwd-${i}`,
-        position,
-        name,
-        color: teamColor,
-        image: "",
-        positionKey,
-      })
+  
+  // Đặt vị trí cho cầu thủ
+  for (const player of players) {
+    const positionKey = player.positionKey as string;
+    const pos = positions[positionKey];
+    
+    if (pos) {
+      // Đảo ngược vị trí cho đội khách
+      const position = isHome ? pos : mapAwayPosition(pos);
+      Object.assign(player, { x: position.x });
+      Object.assign(player, { y: position.y });
     }
   }
-
-  // Phần thứ 5 (nếu có)
-  if (parts[4]) {
-    const lastForwards = parts[4]
-    for (let i = 0; i < lastForwards; i++) {
-      let position: Position = "CF"
-      let name = `Tiền đạo ${i + 1}`
-      let positionKey = "CF"
-
-      if (formation === "4-2-3-1") {
-        position = "CF"
-        name = "Tiền đạo cắm"
-        positionKey = "CF"
-      }
-
-      players.push({
-        id: `${prefix}-last-fwd-${i}`,
-        position,
-        name,
-        color: teamColor,
-        image: "",
-        positionKey,
-      })
-    }
-  }
-
+  
   return players
 }
 
@@ -408,13 +283,23 @@ export function getPlayerPositionByFormation(
   formation: Formation,
   positionKey: string,
   teamId: "home" | "away",
+  fieldType: FieldType = "11",
 ): { x: number; y: number } {
-  const positions = formationPositions[formation]
-  const position = positions[positionKey]
+  // Lấy vị trí dựa trên loại sân và đội hình
+  let positions;
+  if (fieldType === "5") {
+    positions = field5Positions[formation as keyof typeof field5Positions];
+  } else if (fieldType === "7") {
+    positions = field7Positions[formation as keyof typeof field7Positions];
+  } else {
+    positions = formationPositions[formation as keyof typeof formationPositions];
+  }
+  
+  const position = positions?.[positionKey]
 
   if (!position) {
     // Vị trí mặc định nếu không tìm thấy
-    return teamId === "home" ? { x: 50, y: 50 } : { x: 50, y: 50 }
+    return teamId === "home" ? { x: 50, y: 50 } : { x: 450, y: 50 }
   }
 
   // Chuyển đổi từ phần trăm sang pixel (giả sử sân 500x500)
@@ -424,5 +309,12 @@ export function getPlayerPositionByFormation(
   }
 
   // Đảo ngược vị trí cho đội khách
-  return teamId === "home" ? pixelPosition : mapAwayPosition(position)
+  if (teamId === "away") {
+    return {
+      x: 500 - pixelPosition.x, // Đảo ngược trục X
+      y: pixelPosition.y
+    };
+  }
+  
+  return pixelPosition;
 }

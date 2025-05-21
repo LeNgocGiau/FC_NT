@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Moon, Save, Share, Trash2, UserPlus, Pencil, Eraser, RefreshCw, FileText, Calendar } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Moon, Save, Share, Trash2, UserPlus, Pencil, Eraser, RefreshCw, FileText, Calendar, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -10,11 +10,13 @@ import FootballPitch from "@/components/football-pitch"
 import PlayerList from "@/components/player-list"
 import PlayerForm from "@/components/player-form"
 import FormationSelector from "@/components/formation-selector"
+import FieldTypeSelector from "@/components/field-type-selector"
 import SubstitutionDialog from "@/components/substitution-dialog"
 import SubstitutionHistory from "@/components/substitution-history"
 import NoteManager from "@/components/note-manager"
 import MatchSchedule from "@/components/match-schedule"
-import type { Player, Position, Team, Formation, DrawingMode, Substitution, Note, Match } from "@/lib/types"
+import PlayerDisciplineManager from "@/components/player-discipline"
+import type { Player, Position, Team, Formation, DrawingMode, Substitution, Note, Match, PlayerDiscipline, FieldType } from "@/lib/types"
 import { generatePlayersFromFormation } from "@/lib/formations"
 
 export default function TacticBoard() {
@@ -22,6 +24,7 @@ export default function TacticBoard() {
     id: "home",
     name: "Đội nhà",
     color: "#2563eb",
+    formation: "4-4-2",
     players: [
       {
         id: "home-1",
@@ -43,6 +46,7 @@ export default function TacticBoard() {
     id: "away",
     name: "Đội khách",
     color: "#dc2626",
+    formation: "4-4-2",
     players: [],
     substitutions: [],
   })
@@ -53,28 +57,100 @@ export default function TacticBoard() {
   const [selectedTeamName, setSelectedTeamName] = useState<string>("Việt Nam (Cấp độ cao)")
   const [selectedPosition, setSelectedPosition] = useState<Position>("GK")
   const [selectedFormation, setSelectedFormation] = useState<Formation>("4-4-2")
+  const [selectedFieldType, setSelectedFieldType] = useState<FieldType>("11")
   const [drawingMode, setDrawingMode] = useState<DrawingMode>("none")
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null)
   const [canDragPlayers, setCanDragPlayers] = useState(false)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [isAddingPlayer, setIsAddingPlayer] = useState(false)
   const [isSubstitutionDialogOpen, setIsSubstitutionDialogOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<"tactics" | "notes" | "schedule">("tactics")
+  const [activeTab, setActiveTab] = useState<"tactics" | "discipline" | "notes" | "schedule">("tactics")
+  const [playerDisciplines, setPlayerDisciplines] = useState<PlayerDiscipline[]>([])
+  const [confirmDeleteDialogOpen, setConfirmDeleteDialogOpen] = useState(false)
+
+  // Tải dữ liệu kỷ luật cầu thủ từ localStorage khi khởi động
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedDisciplines = localStorage.getItem('playerDisciplines')
+      if (savedDisciplines) {
+        try {
+          setPlayerDisciplines(JSON.parse(savedDisciplines))
+        } catch (error) {
+          console.error('Lỗi khi tải dữ liệu kỷ luật:', error)
+        }
+      }
+    }
+  }, [])
 
   const activeTeam = activeTeamId === "home" ? homeTeam : awayTeam
   const setActiveTeam = activeTeamId === "home" ? setHomeTeam : setAwayTeam
 
   const handleFormationChange = (formation: Formation) => {
     setSelectedFormation(formation)
-    const newPlayers = generatePlayersFromFormation(formation, activeTeam.color, activeTeamId)
+    
+    if (activeTeamId === "home") {
+      // Update home team formation
+      const newPlayers = generatePlayersFromFormation(formation, homeTeam.color, "home", selectedFieldType)
+      
+      // Keep the substitutes
+      const substitutes = homeTeam.players.filter((p) => p.isSubstitute)
+      
+      setHomeTeam({
+        ...homeTeam,
+        formation: formation,
+        players: [...newPlayers, ...substitutes],
+      })
+    } else {
+      // Update away team formation
+      const newPlayers = generatePlayersFromFormation(formation, awayTeam.color, "away", selectedFieldType)
+      
+      // Keep the substitutes
+      const substitutes = awayTeam.players.filter((p) => p.isSubstitute)
+      
+      setAwayTeam({
+        ...awayTeam,
+        formation: formation,
+        players: [...newPlayers, ...substitutes],
+      })
+    }
+  }
 
-    // Giữ lại các cầu thủ dự bị
-    const substitutes = activeTeam.players.filter((p) => p.isSubstitute)
+  const handleFieldTypeChange = (fieldType: FieldType) => {
+    setSelectedFieldType(fieldType)
+    
+    // Lấy đội hình mặc định dựa trên loại sân
+    let defaultFormation: Formation;
+    switch (fieldType) {
+      case "5":
+        defaultFormation = "3-1";
+        break;
+      case "7":
+        defaultFormation = "3-3";
+        break;
+      default:
+        defaultFormation = "4-4-2";
+    }
+    
+    // Cập nhật đội hình và vị trí cầu thủ cho đội đang chọn
+    setSelectedFormation(defaultFormation)
+    
+    const activeTeam = activeTeamId === "home" ? homeTeam : awayTeam;
+    const newPlayers = generatePlayersFromFormation(defaultFormation, activeTeam.color, activeTeamId, fieldType);
+    const substitutes = activeTeam.players.filter((p) => p.isSubstitute);
 
-    setActiveTeam({
-      ...activeTeam,
-      players: [...newPlayers, ...substitutes],
-    })
+    if (activeTeamId === "home") {
+      setHomeTeam({
+        ...homeTeam,
+        formation: defaultFormation,
+        players: [...newPlayers, ...substitutes],
+      });
+    } else {
+      setAwayTeam({
+        ...awayTeam,
+        formation: defaultFormation,
+        players: [...newPlayers, ...substitutes],
+      });
+    }
   }
 
   const addPlayer = () => {
@@ -116,6 +192,8 @@ export default function TacticBoard() {
       })
     }
     setEditingPlayer(null)
+
+    // Component PlayerDisciplineManager sẽ tự động cập nhật thông tin kỷ luật dựa trên thay đổi của props players
   }
 
   const clearAllPlayers = () => {
@@ -215,6 +293,18 @@ export default function TacticBoard() {
     setMatches(matches.filter((match) => match.id !== id))
   }
 
+  // Xử lý kỷ luật cầu thủ
+  const handleDisciplineChange = (disciplines: PlayerDiscipline[]) => {
+    setPlayerDisciplines(disciplines)
+    
+    // Lưu vào localStorage để đảm bảo nhất quán dữ liệu khi chuyển tab
+    if (disciplines.length > 0) {
+      localStorage.setItem('playerDisciplines', JSON.stringify(disciplines))
+    } else {
+      localStorage.removeItem('playerDisciplines')
+    }
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-white">
       <header className="flex items-center justify-between p-4 border-b">
@@ -235,6 +325,9 @@ export default function TacticBoard() {
           <TabsList className="w-full mb-4">
             <TabsTrigger value="tactics" className="flex-1">
               <Pencil className="h-4 w-4 mr-2" /> Chiến thuật
+            </TabsTrigger>
+            <TabsTrigger value="discipline" className="flex-1">
+              <AlertTriangle className="h-4 w-4 mr-2" /> Kỷ luật
             </TabsTrigger>
             <TabsTrigger value="notes" className="flex-1">
               <FileText className="h-4 w-4 mr-2" /> Ghi chú
@@ -289,7 +382,7 @@ export default function TacticBoard() {
               <Button variant="default" size="sm" className="bg-orange-500 hover:bg-orange-600 text-white" onClick={handleShare}>
                 <Share className="h-4 w-4 mr-2" /> Chia sẻ
               </Button>
-              <Button variant="default" size="sm" className="bg-red-500 hover:bg-red-600 text-white" onClick={clearAllPlayers}>
+              <Button variant="default" size="sm" className="bg-red-500 hover:bg-red-600 text-white" onClick={() => setConfirmDeleteDialogOpen(true)}>
                 <Trash2 className="h-4 w-4 mr-2" /> Xóa tất cả
               </Button>
             </div>
@@ -320,6 +413,20 @@ export default function TacticBoard() {
                         </SelectContent>
                       </Select>
                     </div>
+                    
+                    <div className="mb-6">
+                      <h2 className="text-lg font-semibold mb-2">Loại sân</h2>
+                      <FieldTypeSelector selectedFieldType={selectedFieldType} onFieldTypeChange={handleFieldTypeChange} />
+                    </div>
+
+                    <div className="mb-6">
+                      <h2 className="text-lg font-semibold mb-2">Sơ đồ chiến thuật</h2>
+                      <FormationSelector 
+                        selectedFormation={homeTeam.formation || selectedFormation} 
+                        onFormationChange={handleFormationChange} 
+                        fieldType={selectedFieldType} 
+                      />
+                    </div>
                   </TabsContent>
 
                   <TabsContent value="away" className="mt-0">
@@ -336,13 +443,22 @@ export default function TacticBoard() {
                         </SelectContent>
                       </Select>
                     </div>
+                    
+                    <div className="mb-6">
+                      <h2 className="text-lg font-semibold mb-2">Loại sân</h2>
+                      <FieldTypeSelector selectedFieldType={selectedFieldType} onFieldTypeChange={handleFieldTypeChange} />
+                    </div>
+
+                    <div className="mb-6">
+                      <h2 className="text-lg font-semibold mb-2">Sơ đồ chiến thuật</h2>
+                      <FormationSelector 
+                        selectedFormation={awayTeam.formation || selectedFormation}
+                        onFormationChange={handleFormationChange} 
+                        fieldType={selectedFieldType} 
+                      />
+                    </div>
                   </TabsContent>
                 </Tabs>
-
-                <div className="mb-6">
-                  <h2 className="text-lg font-semibold mb-2">Sơ đồ chiến thuật</h2>
-                  <FormationSelector selectedFormation={selectedFormation} onFormationChange={handleFormationChange} />
-                </div>
 
                 <div className="mb-6">
                   <PlayerList
@@ -368,9 +484,17 @@ export default function TacticBoard() {
                   drawingMode={drawingMode}
                   onUpdatePlayer={updatePlayer}
                   canDragPlayers={canDragPlayers}
+                  fieldType={selectedFieldType}
                 />
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="discipline" className="mt-0">
+            <PlayerDisciplineManager
+              players={[...homeTeam.players, ...awayTeam.players]}
+              onDisciplineChange={handleDisciplineChange}
+            />
           </TabsContent>
 
           <TabsContent value="notes" className="mt-0">
@@ -388,6 +512,8 @@ export default function TacticBoard() {
               onAddMatch={handleAddMatch}
               onUpdateMatch={handleUpdateMatch}
               onDeleteMatch={handleDeleteMatch}
+              homeTeam={homeTeam}
+              awayTeam={awayTeam}
             />
           </TabsContent>
         </Tabs>
@@ -433,6 +559,28 @@ export default function TacticBoard() {
                 className="bg-blue-500 hover:bg-blue-600"
               >
                 Lưu thành hình ảnh
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog xác nhận xóa tất cả */}
+      <Dialog open={confirmDeleteDialogOpen} onOpenChange={setConfirmDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Xác nhận xóa tất cả</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <p className="text-sm text-gray-500">
+              Bạn có chắc chắn muốn xóa tất cả cầu thủ và lịch sử thay người? Hành động này không thể hoàn tác.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmDeleteDialogOpen(false)}>
+                Hủy
+              </Button>
+              <Button className="bg-red-500 hover:bg-red-600 text-white" onClick={() => { clearAllPlayers(); setConfirmDeleteDialogOpen(false) }}>
+                Xóa tất cả
               </Button>
             </div>
           </div>
