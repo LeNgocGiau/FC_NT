@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Calendar, Clock, MapPin, Trophy, Plus, Edit, Trash2, Send, Bot, X, Upload, Image, Sparkles, Volume2, VolumeX, Smile, Star } from "lucide-react"
+import { Calendar, Clock, MapPin, Trophy, Plus, Edit, Trash2, Send, Bot, X, Upload, Image, Sparkles, Volume2, VolumeX, Smile, Star, Goal, Flag, List } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -11,11 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import type { Match, Team } from "@/lib/types"
+import type { Match, Team, Player } from "@/lib/types"
 import ConfirmDeleteDialog from "@/components/confirm-delete-dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import PlayerRating from "@/components/player-rating"
+import MatchEvents, { MatchEvents as MatchEventsType } from "@/components/match-events"
 
 // Define the PlayerRatingsData interface here to match the one from player-rating.tsx
 interface PlayerRating {
@@ -40,6 +41,8 @@ interface MatchScheduleProps {
   onDeleteMatch: (id: string) => void
   homeTeam: Team
   awayTeam: Team
+  onUpdateHomeTeam?: (team: Team) => void
+  onUpdateAwayTeam?: (team: Team) => void
 }
 
 // Types for AI Agent
@@ -65,7 +68,42 @@ type ChatMessage = {
   reactions?: Record<string, Reaction>;
 }
 
-export default function MatchSchedule({ matches, onAddMatch, onUpdateMatch, onDeleteMatch, homeTeam, awayTeam }: MatchScheduleProps) {
+// Match events interfaces
+interface MatchGoal {
+  id: string
+  playerId: string
+  teamId: string
+  minute: number
+  assistPlayerId?: string
+  isOwnGoal?: boolean
+  isPenalty?: boolean
+  note?: string
+}
+
+interface MatchCard {
+  id: string
+  playerId: string
+  teamId: string
+  minute: number
+  type: 'yellow' | 'red'
+  reason?: string
+}
+
+interface MatchEvents {
+  goals: MatchGoal[]
+  cards: MatchCard[]
+}
+
+export default function MatchSchedule({ 
+  matches, 
+  onAddMatch, 
+  onUpdateMatch, 
+  onDeleteMatch, 
+  homeTeam, 
+  awayTeam,
+  onUpdateHomeTeam,
+  onUpdateAwayTeam
+}: MatchScheduleProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingMatch, setEditingMatch] = useState<Match | null>(null)
   const [filter, setFilter] = useState<"all" | "upcoming" | "completed">("all")
@@ -73,6 +111,8 @@ export default function MatchSchedule({ matches, onAddMatch, onUpdateMatch, onDe
   const [matchIdToDelete, setMatchIdToDelete] = useState<string | null>(null)
   const [isRatingDialogOpen, setIsRatingDialogOpen] = useState(false)
   const [ratingMatch, setRatingMatch] = useState<Match | null>(null)
+  const [isEventsDialogOpen, setIsEventsDialogOpen] = useState(false)
+  const [eventsMatch, setEventsMatch] = useState<Match | null>(null)
   
   // AI chat states
   const [aiQuestion, setAiQuestion] = useState("")
@@ -1030,6 +1070,11 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
     setIsRatingDialogOpen(true)
   }
   
+  const handleViewEvents = (match: Match) => {
+    setEventsMatch(match)
+    setIsEventsDialogOpen(true)
+  }
+  
   const handleSaveRatings = (ratings: PlayerRatingsData) => {
     if (ratingMatch) {
       const updatedMatch = {
@@ -1037,6 +1082,62 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
         playerRatings: ratings
       }
       onUpdateMatch(updatedMatch)
+    }
+  }
+  
+  const handleSaveEvents = (events: MatchEventsType, updatedPlayers?: {player: Player, teamId: string}[]) => {
+    if (eventsMatch) {
+      const updatedMatch = {
+        ...eventsMatch,
+        events: events
+      }
+      onUpdateMatch(updatedMatch)
+      
+      // Cập nhật thông tin cầu thủ nếu có
+      if (updatedPlayers && updatedPlayers.length > 0) {
+        // Tạo bản sao đội nhà và đội khách để cập nhật
+        const updatedHomeTeam = {...homeTeam};
+        const updatedAwayTeam = {...awayTeam};
+        let homeTeamUpdated = false;
+        let awayTeamUpdated = false;
+        
+        // Cập nhật thông tin cho từng cầu thủ
+        updatedPlayers.forEach(({ player, teamId }) => {
+          if (teamId === homeTeam.id) {
+            // Cập nhật cầu thủ trong đội nhà
+            const playerIndex = updatedHomeTeam.players.findIndex(p => p.id === player.id);
+            if (playerIndex !== -1) {
+              updatedHomeTeam.players[playerIndex] = {
+                ...updatedHomeTeam.players[playerIndex],
+                yellowCards: player.yellowCards,
+                redCards: player.redCards
+              };
+              homeTeamUpdated = true;
+            }
+          } else if (teamId === awayTeam.id) {
+            // Cập nhật cầu thủ trong đội khách
+            const playerIndex = updatedAwayTeam.players.findIndex(p => p.id === player.id);
+            if (playerIndex !== -1) {
+              updatedAwayTeam.players[playerIndex] = {
+                ...updatedAwayTeam.players[playerIndex],
+                yellowCards: player.yellowCards,
+                redCards: player.redCards
+              };
+              awayTeamUpdated = true;
+            }
+          }
+        });
+        
+        // Cập nhật đội nếu có thay đổi
+        if (homeTeamUpdated && onUpdateHomeTeam) {
+          onUpdateHomeTeam(updatedHomeTeam);
+        }
+        if (awayTeamUpdated && onUpdateAwayTeam) {
+          onUpdateAwayTeam(updatedAwayTeam);
+        }
+      }
+      
+      setIsEventsDialogOpen(false)
     }
   }
 
@@ -1098,15 +1199,26 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
                     </div>
                     <div className="flex space-x-1">
                       {match.completed && (
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="h-8 flex items-center text-xs"
-                          onClick={() => handleRateMatch(match)}
-                        >
-                          <Star className="h-3 w-3 mr-1" /> 
-                          {match.playerRatings ? "Xem đánh giá" : "Đánh giá cầu thủ"}
-                        </Button>
+                        <>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 flex items-center text-xs"
+                            onClick={() => handleRateMatch(match)}
+                          >
+                            <Star className="h-3 w-3 mr-1" /> 
+                            {match.playerRatings ? "Xem đánh giá" : "Đánh giá cầu thủ"}
+                          </Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 flex items-center text-xs"
+                            onClick={() => handleViewEvents(match)}
+                          >
+                            <Goal className="h-3 w-3 mr-1" /> 
+                            {match.events ? "Xem sự kiện" : "Thêm sự kiện"}
+                          </Button>
+                        </>
                       )}
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEditMatch(match)}>
                         <Edit className="h-4 w-4" />
@@ -1275,6 +1387,106 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
                     <div className="mt-3 pt-3 border-t text-sm text-gray-600">
                       <p className="font-medium mb-1">Ghi chú:</p>
                       <p>{match.notes}</p>
+                    </div>
+                  )}
+                  
+                  {/* Match Events Summary */}
+                  {match.events && match.completed && (
+                    <div className="mt-3 pt-3 border-t text-sm">
+                      <p className="font-medium mb-2 flex items-center">
+                        <Clock className="h-4 w-4 mr-1" /> Diễn biến trận đấu:
+                      </p>
+                      
+                      <div className="space-y-2">
+                        {/* Goals */}
+                        {match.events.goals.length > 0 && (
+                          <div className="flex items-start">
+                            <div className="w-6 flex-shrink-0">
+                              <Goal className="h-4 w-4 text-green-600" />
+                            </div>
+                            <div className="flex-grow">
+                              <p className="font-medium text-gray-700">Bàn thắng:</p>
+                              <div className="space-y-1">
+                                {match.events.goals
+                                  .sort((a, b) => a.minute - b.minute)
+                                  .map((goal, index) => {
+                                    const isHomeTeam = goal.teamId === homeTeam.id;
+                                    const player = isHomeTeam 
+                                      ? homeTeam.players.find(p => p.id === goal.playerId)
+                                      : awayTeam.players.find(p => p.id === goal.playerId);
+                                    
+                                    const assistPlayer = goal.assistPlayerId 
+                                      ? (goal.teamId === homeTeam.id
+                                          ? homeTeam.players.find(p => p.id === goal.assistPlayerId)
+                                          : awayTeam.players.find(p => p.id === goal.assistPlayerId))
+                                      : undefined;
+                                    
+                                    if (!player) return null;
+                                    
+                                    return (
+                                      <div key={goal.id} className="flex items-center text-gray-600">
+                                        <Badge className="mr-2 bg-gray-200 text-gray-800 font-normal">{goal.minute}'</Badge>
+                                        <span className={`${isHomeTeam ? 'text-blue-600' : 'text-red-600'} font-medium`}>
+                                          {player.name} 
+                                          {goal.isOwnGoal && <span className="text-gray-500">(phản lưới)</span>}
+                                          {goal.isPenalty && <span className="text-gray-500">(phạt đền)</span>}
+                                        </span>
+                                        {assistPlayer && (
+                                          <span className="text-gray-500 ml-1 text-xs">
+                                            (kiến tạo: {assistPlayer.name})
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Cards */}
+                        {match.events.cards.length > 0 && (
+                          <div className="flex items-start">
+                            <div className="w-6 flex-shrink-0">
+                              <Flag className="h-4 w-4 text-orange-500" />
+                            </div>
+                            <div className="flex-grow">
+                              <p className="font-medium text-gray-700">Thẻ phạt:</p>
+                              <div className="space-y-1">
+                                {match.events.cards
+                                  .sort((a, b) => a.minute - b.minute)
+                                  .map((card, index) => {
+                                    const isHomeTeam = card.teamId === homeTeam.id;
+                                    const player = isHomeTeam 
+                                      ? homeTeam.players.find(p => p.id === card.playerId)
+                                      : awayTeam.players.find(p => p.id === card.playerId);
+                                    
+                                    if (!player) return null;
+                                    
+                                    return (
+                                      <div key={card.id} className="flex items-center text-gray-600">
+                                        <Badge className="mr-2 bg-gray-200 text-gray-800 font-normal">{card.minute}'</Badge>
+                                        <div className={`w-3 h-4 mr-1 ${card.type === 'yellow' ? 'bg-yellow-400' : 'bg-red-500'}`}></div>
+                                        <span className="font-medium">
+                                          {player.name}
+                                        </span>
+                                        {card.reason && (
+                                          <span className="text-gray-500 ml-1 text-xs">
+                                            ({card.reason})
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {match.events.goals.length === 0 && match.events.cards.length === 0 && (
+                          <p className="text-gray-500">Chưa có dữ liệu sự kiện</p>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1860,6 +2072,18 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
           open={isRatingDialogOpen}
           onOpenChange={setIsRatingDialogOpen}
           onSaveRatings={handleSaveRatings}
+        />
+      )}
+
+      {/* Match Events Dialog */}
+      {eventsMatch && (
+        <MatchEvents 
+          match={eventsMatch}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          open={isEventsDialogOpen}
+          onOpenChange={setIsEventsDialogOpen}
+          onSaveEvents={handleSaveEvents}
         />
       )}
     </div>

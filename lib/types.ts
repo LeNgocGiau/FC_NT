@@ -1,3 +1,5 @@
+import { MatchEvents } from "@/components/match-events";
+
 export type Position = "GK" | "CB" | "LB" | "RB" | "DMF" | "CMF" | "LWF" | "RWF" | "CF"
 export type Formation = "4-4-2" | "4-3-3" | "3-5-2" | "5-3-2" | "4-2-3-1" | "3-4-3" | "3-1" | "2-1-1" | "2-2" | "3-2-1" | "3-3" | "2-3-1" | string
 export type DrawingMode = "none" | "pencil" | "eraser"
@@ -17,12 +19,14 @@ export interface Player {
   redCards?: number
   injuryStatus?: InjuryStatus
   isSubstitute?: boolean
+  status?: "active" | "injured" | "suspended"
 }
 
 export interface Team {
   id: string
   name: string
   color: string
+  logo?: string
   players: Player[]
   substitutions?: Substitution[]
   formation?: Formation
@@ -73,6 +77,7 @@ export interface Match {
       comment?: string
     }[]
   }
+  events?: MatchEvents
 }
 
 export interface PlayerDiscipline {
