@@ -16,6 +16,9 @@ interface PlayerRating {
   score: number
   isMVP?: boolean
   comment?: string
+  number?: number
+  yellowCards?: number
+  redCards?: number
 }
 
 interface PlayerRatingsData {
@@ -58,7 +61,10 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
           .map(player => ({
             playerId: player.id,
             score: 0,
-            comment: ""
+            comment: "",
+            number: player.number,
+            yellowCards: player.yellowCards,
+            redCards: player.redCards
           }))
 
         const initialAwayRatings = awayTeam.players
@@ -66,7 +72,10 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
           .map(player => ({
             playerId: player.id,
             score: 0,
-            comment: ""
+            comment: "",
+            number: player.number,
+            yellowCards: player.yellowCards,
+            redCards: player.redCards
           }))
 
         setHomeTeamRatings(initialHomeRatings)
@@ -90,7 +99,10 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
       .map(p => ({
         playerId: p.id,
         score: 0,
-        comment: ""
+        comment: "",
+        number: p.number,
+        yellowCards: p.yellowCards,
+        redCards: p.redCards
       }))
     
     const newAwayPlayers = awayTeam.players
@@ -98,7 +110,10 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
       .map(p => ({
         playerId: p.id,
         score: 0,
-        comment: ""
+        comment: "",
+        number: p.number,
+        yellowCards: p.yellowCards,
+        redCards: p.redCards
       }))
     
     let updatedHomeRatings = [...homeTeamRatings]
@@ -269,13 +284,29 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
                       <div key={rating.playerId} className="mb-8 last:mb-0">
                         <div className="flex mb-2 items-center">
                           <div className={`w-10 h-10 flex items-center justify-center rounded-full text-white ${isMVP ? 'bg-yellow-500' : 'bg-blue-500'} mr-3`}>
-                            <div className="text-xs">
-                              {player.position}
-                            </div>
+                            {player.number ? (
+                              <span className="text-xs font-bold">{player.number}</span>
+                            ) : (
+                              <div className="text-xs">
+                                {player.position.charAt(0)}
+                              </div>
+                            )}
                           </div>
                           <div>
                             <div className="font-semibold">{player.name}</div>
                             <div className="text-xs text-gray-500">{player.position}</div>
+                            <div className="flex items-center gap-2 mt-1">
+                              {(player.yellowCards && player.yellowCards > 0) && (
+                                <span className="inline-flex items-center bg-yellow-400 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.yellowCards}🟨
+                                </span>
+                              )}
+                              {(player.redCards && player.redCards > 0) && (
+                                <span className="inline-flex items-center bg-red-500 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.redCards}🟥
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="ml-auto">
                             <Button 
@@ -332,13 +363,29 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
                       <div key={rating.playerId} className="mb-8 last:mb-0">
                         <div className="flex mb-2 items-center">
                           <div className={`w-10 h-10 flex items-center justify-center rounded-full text-white ${isMVP ? 'bg-purple-500' : 'bg-red-500'} mr-3`}>
-                            <div className="text-xs">
-                              {player.position}
-                            </div>
+                            {player.number ? (
+                              <span className="text-xs font-bold">{player.number}</span>
+                            ) : (
+                              <div className="text-xs">
+                                {player.position.charAt(0)}
+                              </div>
+                            )}
                           </div>
                           <div>
                             <div className="font-semibold">{player.name}</div>
                             <div className="text-xs text-gray-500">{player.position}</div>
+                            <div className="flex items-center gap-2 mt-1">
+                              {(player.yellowCards && player.yellowCards > 0) && (
+                                <span className="inline-flex items-center bg-yellow-400 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.yellowCards}🟨
+                                </span>
+                              )}
+                              {(player.redCards && player.redCards > 0) && (
+                                <span className="inline-flex items-center bg-red-500 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.redCards}🟥
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="ml-auto">
                             <Button 
@@ -433,13 +480,25 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
                       return (
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs">
-                            {player.position?.charAt(0) || "?"}
+                            {player.number || player.position?.charAt(0) || "?"}
                           </div>
                           <div>
                             <div className="text-sm font-medium">{player.name}</div>
                             <div className="flex items-center">
                               <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                               <span className="text-sm ml-1">{rating.score.toFixed(1)}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              {(player.yellowCards && player.yellowCards > 0) && (
+                                <span className="inline-flex items-center bg-yellow-400 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.yellowCards}🟨
+                                </span>
+                              )}
+                              {(player.redCards && player.redCards > 0) && (
+                                <span className="inline-flex items-center bg-red-500 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.redCards}🟥
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -465,13 +524,25 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
                       return (
                         <div className="flex items-center gap-2">
                           <div className="w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center text-xs">
-                            {player.position?.charAt(0) || "?"}
+                            {player.number || player.position?.charAt(0) || "?"}
                           </div>
                           <div>
                             <div className="text-sm font-medium">{player.name}</div>
                             <div className="flex items-center">
                               <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
                               <span className="text-sm ml-1">{rating.score.toFixed(1)}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              {(player.yellowCards && player.yellowCards > 0) && (
+                                <span className="inline-flex items-center bg-yellow-400 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.yellowCards}🟨
+                                </span>
+                              )}
+                              {(player.redCards && player.redCards > 0) && (
+                                <span className="inline-flex items-center bg-red-500 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                  {player.redCards}🟥
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -494,7 +565,13 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
                           Cầu thủ
                         </th>
                         <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Số áo
+                        </th>
+                        <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Vị trí
+                        </th>
+                        <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Thẻ
                         </th>
                         <th scope="col" className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Điểm
@@ -538,8 +615,26 @@ export default function PlayerRating({ match, homeTeam, awayTeam, open, onOpenCh
                                   </div>
                                 </div>
                               </td>
+                              <td className="px-4 py-2 whitespace-nowrap text-center text-sm">
+                                {player.number || "-"}
+                              </td>
                               <td className="px-4 py-2 whitespace-nowrap text-sm text-center">
                                 {player.position}
+                              </td>
+                              <td className="px-4 py-2 whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  {player.yellowCards && player.yellowCards > 0 && (
+                                    <span className="inline-flex items-center bg-yellow-400 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                      {player.yellowCards}🟨
+                                    </span>
+                                  )}
+                                  {player.redCards && player.redCards > 0 && (
+                                    <span className="inline-flex items-center bg-red-500 px-1.5 py-0.5 rounded text-xs font-medium text-white">
+                                      {player.redCards}🟥
+                                    </span>
+                                  )}
+                                  {((!player.yellowCards || player.yellowCards <= 0) && (!player.redCards || player.redCards <= 0)) && "-"}
+                                </div>
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap text-center">
                                 <span className={`text-sm font-medium ${rating.score >= 7 ? 'text-blue-600' : rating.score >= 5 ? 'text-gray-800' : 'text-red-600'}`}>
