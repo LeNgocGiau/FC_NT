@@ -64,11 +64,13 @@ export interface Match {
       playerId: string
       score: number
       isMVP?: boolean
+      comment?: string
     }[]
     awayTeamRatings: {
       playerId: string
       score: number
       isMVP?: boolean
+      comment?: string
     }[]
   }
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Calendar, Clock, MapPin, Trophy, Plus, Edit, Trash2, Send, Bot, X, Upload, Image, Sparkles, Volume2, VolumeX, Smile } from "lucide-react"
+import { Calendar, Clock, MapPin, Trophy, Plus, Edit, Trash2, Send, Bot, X, Upload, Image, Sparkles, Volume2, VolumeX, Smile, Star } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,23 @@ import type { Match, Team } from "@/lib/types"
 import ConfirmDeleteDialog from "@/components/confirm-delete-dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
+import PlayerRating from "@/components/player-rating"
+
+// Define the PlayerRatingsData interface here to match the one from player-rating.tsx
+interface PlayerRating {
+  playerId: string
+  score: number
+  isMVP?: boolean
+  comment?: string
+}
+
+interface PlayerRatingsData {
+  matchId: string
+  homeTeamRatings: PlayerRating[]
+  awayTeamRatings: PlayerRating[]
+  homeMVP?: string
+  awayMVP?: string
+}
 
 interface MatchScheduleProps {
   matches: Match[]
@@ -54,6 +71,8 @@ export default function MatchSchedule({ matches, onAddMatch, onUpdateMatch, onDe
   const [filter, setFilter] = useState<"all" | "upcoming" | "completed">("all")
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [matchIdToDelete, setMatchIdToDelete] = useState<string | null>(null)
+  const [isRatingDialogOpen, setIsRatingDialogOpen] = useState(false)
+  const [ratingMatch, setRatingMatch] = useState<Match | null>(null)
   
   // AI chat states
   const [aiQuestion, setAiQuestion] = useState("")
@@ -1006,6 +1025,21 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
     }
   };
 
+  const handleRateMatch = (match: Match) => {
+    setRatingMatch(match)
+    setIsRatingDialogOpen(true)
+  }
+  
+  const handleSaveRatings = (ratings: PlayerRatingsData) => {
+    if (ratingMatch) {
+      const updatedMatch = {
+        ...ratingMatch,
+        playerRatings: ratings
+      }
+      onUpdateMatch(updatedMatch)
+    }
+  }
+
   return (
     <div className="relative flex h-[calc(100vh-4rem)]">
       {/* Main Content */}
@@ -1063,6 +1097,17 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
                       </div>
                     </div>
                     <div className="flex space-x-1">
+                      {match.completed && (
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 flex items-center text-xs"
+                          onClick={() => handleRateMatch(match)}
+                        >
+                          <Star className="h-3 w-3 mr-1" /> 
+                          {match.playerRatings ? "Xem đánh giá" : "Đánh giá cầu thủ"}
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEditMatch(match)}>
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -1091,6 +1136,125 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
                       {match.completed && <p className="text-2xl font-bold">{match.awayScore}</p>}
                     </div>
                   </div>
+
+                  {/* MVP Display */}
+                  {match.playerRatings && match.completed && (match.playerRatings.homeMVP || match.playerRatings.awayMVP) && (
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      {/* Home Team MVP */}
+                      <div className="bg-yellow-100 rounded-lg p-5 relative overflow-hidden shadow-md border border-yellow-200">
+                        <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-yellow-300 opacity-20 transform translate-x-10 -translate-y-10"></div>
+                        
+                        {match.homeScore !== undefined && match.awayScore !== undefined && match.homeScore > match.awayScore && (
+                          <div className="absolute top-3 right-3 bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">
+                            WIN
+                          </div>
+                        )}
+                        
+                        {match.homeScore !== undefined && match.awayScore !== undefined && match.homeScore < match.awayScore && (
+                          <div className="absolute top-3 right-3 border border-gray-300 text-gray-600 px-3 py-1 rounded-full text-xs font-bold">
+                            LOSS
+                          </div>
+                        )}
+                        
+                        <div className="flex items-start">
+                          <div className="mr-4">
+                            <Trophy className="h-10 w-10 text-yellow-500" />
+                          </div>
+                          <div>
+                            <div className="text-base font-bold mb-3">MVP Đội nhà</div>
+                            {match.playerRatings?.homeMVP ? 
+                              (() => {
+                                const homeMvpPlayer = homeTeam.players.find(p => p.id === match.playerRatings?.homeMVP);
+                                const homeMvpRating = match.playerRatings?.homeTeamRatings.find(r => r.playerId === match.playerRatings?.homeMVP);
+                                
+                                if (!homeMvpPlayer || !homeMvpRating) {
+                                  return <span className="text-gray-500 text-sm">MVP không có sẵn</span>;
+                                }
+                                
+                                return (
+                                  <div className="flex items-center">
+                                    <div className={`w-14 h-14 flex items-center justify-center rounded-full text-white bg-blue-500 mr-3 shadow-md`}>
+                                      {homeMvpPlayer.image ? (
+                                        <img src={homeMvpPlayer.image} alt={homeMvpPlayer.name} className="w-full h-full rounded-full object-cover" />
+                                      ) : (
+                                        <div className="text-lg font-bold">{homeMvpPlayer.position.charAt(0) || "?"}</div>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <p className="text-lg font-bold">{homeMvpPlayer.name}</p>
+                                      <p className="text-sm text-gray-600">{homeMvpPlayer.position}</p>
+                                      <div className="flex items-center mt-1">
+                                        <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                                        <span className="text-lg font-bold ml-1">{homeMvpRating.score.toFixed(1)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()
+                              : <span className="text-gray-500 text-sm">Chưa có MVP</span>
+                            }
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Away Team MVP */}
+                      <div className="bg-purple-100 rounded-lg p-5 relative overflow-hidden shadow-md border border-purple-200">
+                        <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-purple-300 opacity-20 transform translate-x-10 -translate-y-10"></div>
+                        
+                        {match.homeScore !== undefined && match.awayScore !== undefined && match.awayScore > match.homeScore && (
+                          <div className="absolute top-3 right-3 bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-sm">
+                            WIN
+                          </div>
+                        )}
+                        
+                        {match.homeScore !== undefined && match.awayScore !== undefined && match.awayScore < match.homeScore && (
+                          <div className="absolute top-3 right-3 border border-gray-300 text-gray-600 px-3 py-1 rounded-full text-xs font-bold">
+                            LOSS
+                          </div>
+                        )}
+                        
+                        <div className="flex items-start">
+                          <div className="mr-4">
+                            <Trophy className="h-10 w-10 text-purple-500" />
+                          </div>
+                          <div>
+                            <div className="text-base font-bold mb-3">MVP Đội khách</div>
+                            {match.playerRatings?.awayMVP ? 
+                              (() => {
+                                const awayMvpPlayer = awayTeam.players.find(p => p.id === match.playerRatings?.awayMVP);
+                                const awayMvpRating = match.playerRatings?.awayTeamRatings.find(r => r.playerId === match.playerRatings?.awayMVP);
+                                
+                                if (!awayMvpPlayer || !awayMvpRating) {
+                                  return <span className="text-gray-500 text-sm">MVP không có sẵn</span>;
+                                }
+                                
+                                return (
+                                  <div className="flex items-center">
+                                    <div className={`w-14 h-14 flex items-center justify-center rounded-full text-white bg-red-500 mr-3 shadow-md`}>
+                                      {awayMvpPlayer.image ? (
+                                        <img src={awayMvpPlayer.image} alt={awayMvpPlayer.name} className="w-full h-full rounded-full object-cover" />
+                                      ) : (
+                                        <div className="text-lg font-bold">{awayMvpPlayer.position.charAt(0) || "?"}</div>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <p className="text-lg font-bold">{awayMvpPlayer.name}</p>
+                                      <p className="text-sm text-gray-600">{awayMvpPlayer.position}</p>
+                                      <div className="flex items-center mt-1">
+                                        <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                                        <span className="text-lg font-bold ml-1">{awayMvpRating.score.toFixed(1)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()
+                              : <span className="text-gray-500 text-sm">Chưa có MVP</span>
+                            }
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600">
                     <div className="flex items-center">
@@ -1686,6 +1850,18 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Player Rating Dialog */}
+      {ratingMatch && (
+        <PlayerRating 
+          match={ratingMatch}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          open={isRatingDialogOpen}
+          onOpenChange={setIsRatingDialogOpen}
+          onSaveRatings={handleSaveRatings}
+        />
+      )}
     </div>
   )
 }
