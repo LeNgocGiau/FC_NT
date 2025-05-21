@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Calendar, Clock, MapPin, Trophy, Plus, Edit, Trash2, Send, Bot, X, Upload, Image, Sparkles, Volume2, VolumeX, Smile, Star, Goal, Flag, List } from "lucide-react"
+import { Calendar, Clock, MapPin, Trophy, Plus, Edit, Trash2, Send, Bot, X, Upload, Image, Sparkles, Volume2, VolumeX, Smile, Star, Goal, Flag, List, Mic, MicOff, XCircle, Settings, Languages, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -17,6 +17,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import PlayerRating from "@/components/player-rating"
 import MatchEvents, { MatchEvents as MatchEventsType } from "@/components/match-events"
+import { Slider } from "@/components/ui/slider"
 
 // Define the PlayerRatingsData interface here to match the one from player-rating.tsx
 interface PlayerRating {
@@ -94,6 +95,16 @@ interface MatchEvents {
   cards: MatchCard[]
 }
 
+// Add TypeScript declarations for the SpeechRecognition API
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+    AudioContext: any;
+    webkitAudioContext: any;
+  }
+}
+
 export default function MatchSchedule({ 
   matches, 
   onAddMatch, 
@@ -152,16 +163,267 @@ export default function MatchSchedule({
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true)
   const synth = typeof window !== 'undefined' ? window.speechSynthesis : null
   
-  // Function to speak text
+  // Bổ sung state để lưu trữ danh sách giọng nói có sẵn
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
+
+  // Cập nhật useEffect hiện có hoặc thêm mới để lấy danh sách giọng nói
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      // Lấy danh sách giọng nói khi component được tạo
+      const loadVoices = () => {
+        const voices = speechSynthesis.getVoices()
+        setAvailableVoices(voices)
+      }
+      
+      // SpeechSynthesis.getVoices có thể trả về mảng rỗng khi API chưa sẵn sàng
+      loadVoices()
+      
+      // Đăng ký sự kiện voiceschanged để lấy danh sách khi có sẵn
+      speechSynthesis.onvoiceschanged = loadVoices
+      
+      return () => {
+        // Xóa event listener khi component unmount
+        if (speechSynthesis) {
+          speechSynthesis.onvoiceschanged = null
+        }
+      }
+    }
+  }, [])
+
+  // Fix the detectTextLanguage function to properly handle type comparison
+  const detectTextLanguage = (text: string): 'en' | 'vi' => {
+    // Một số từ phổ biến trong tiếng Anh
+    const englishWords = ['the', 'this', 'that', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'can', 'could', 'should', 'may', 'might', 'must', 'hello']
+    
+    // Một số từ phổ biến trong tiếng Việt hoặc ký tự đặc trưng
+    const vietnameseWords = ['của', 'và', 'các', 'những', 'trong', 'thì', 'là', 'có', 'không', 'được', 'đã', 'sẽ', 'với', 'cho', 'bạn', 'tôi']
+    const vietnameseChars = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i
+
+    // Đếm từ phổ biến tiếng Anh và tiếng Việt
+    let englishCount = 0
+    let vietnameseCount = 0
+    
+    // Chuyển văn bản về chữ thường và tách từ
+    const lowercasedText = text.toLowerCase()
+    const words = lowercasedText.split(/\s+/)
+    
+    // Kiểm tra từng từ
+    for (const word of words) {
+      const cleanWord = word.replace(/[.,!?;:'"()]/g, '')
+      if (englishWords.includes(cleanWord)) {
+        englishCount++
+      }
+      if (vietnameseWords.includes(cleanWord) || vietnameseChars.test(cleanWord)) {
+        vietnameseCount++
+      }
+    }
+    
+    // Nếu có dấu tiếng Việt, ưu tiên tiếng Việt
+    if (vietnameseChars.test(lowercasedText)) {
+      return 'vi'
+    }
+    
+    // Quyết định ngôn ngữ dựa trên số lượng từ phổ biến
+    return englishCount > vietnameseCount ? 'en' : 'vi'
+  }
+
+  // Thêm các state mới cho cài đặt giọng nói
+  const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState(false)
+  const [preferredEnglishVoice, setPreferredEnglishVoice] = useState<string | null>(null)
+  const [preferredVietnameseVoice, setPreferredVietnameseVoice] = useState<string | null>(null)
+  const [speechRate, setSpeechRate] = useState(0.9)  // Speech rate - 0.1 to 2.0
+  const [speechPitch, setSpeechPitch] = useState(1.0) // Speech pitch - 0.1 to 2.0
+  const [speechVolume, setSpeechVolume] = useState(1.0) // Volume - 0 to 1.0
+  const [highQualityVoice, setHighQualityVoice] = useState(true) // Prefer high-quality voices
+
+  // Cập nhật phương thức findBestVoice để có nhiều tùy chọn hơn và ưu tiên những giọng chất lượng cao
+  const findBestVoice = (language: 'en' | 'vi'): SpeechSynthesisVoice | null => {
+    if (!availableVoices || availableVoices.length === 0) {
+      return null
+    }
+    
+    // Kiểm tra nếu người dùng đã chọn giọng ưa thích
+    const preferredVoiceId = language === 'en' ? preferredEnglishVoice : preferredVietnameseVoice
+    
+    if (preferredVoiceId) {
+      const selectedVoice = availableVoices.find(voice => voice.voiceURI === preferredVoiceId)
+      if (selectedVoice) {
+        return selectedVoice
+      }
+    }
+    
+    // Danh sách các ngôn ngữ ưu tiên
+    const preferredLanguageCodes = {
+      en: ['en-GB', 'en-UK', 'en-US', 'en'], // Ưu tiên giọng Anh-Anh (British)
+      vi: ['vi-VN', 'vi']
+    }
+    
+    // Danh sách tên giọng chất lượng cao đã biết
+    const knownGoodVoices = {
+      en: ['Daniel', 'Oliver', 'James', 'Thomas', 'George', 'Arthur', 'Alex', 'Samantha', 'Karen'],
+      vi: ['Chi', 'Lan', 'Đức', 'Minh']
+    }
+
+    // Luôn sử dụng giọng nữ cho tiếng Việt
+    if (language === 'vi') {
+      // Mở rộng danh sách từ khóa tên phụ nữ tiếng Việt
+      const femaleNameKeywords = ['chi', 'lan', 'hương', 'mai', 'thu', 'nữ', 'female', 'woman', 'girl', 'cô', 'chị', 'bà', 'thị', 'loan', 'hằng', 'hồng', 'ngọc'];
+      
+      // Thử tìm giọng nữ tiếng Việt dựa trên tên
+      for (const langCode of preferredLanguageCodes.vi) {
+        const femaleVoice = availableVoices.find(voice => 
+          voice.lang.startsWith(langCode) && 
+          femaleNameKeywords.some(keyword => 
+            voice.name.toLowerCase().includes(keyword.toLowerCase())
+          )
+        );
+        
+        if (femaleVoice) {
+          console.log("Sử dụng giọng nữ tiếng Việt:", femaleVoice.name);
+          return femaleVoice;
+        }
+      }
+      
+      // Thử tìm giọng không phải giọng nam
+      const maleNameKeywords = ['nam', 'male', 'đức', 'minh', 'anh', 'ông', 'chú', 'bác', 'quang', 'tuấn', 'hùng'];
+      
+      for (const langCode of preferredLanguageCodes.vi) {
+        const potentialFemaleVoice = availableVoices.find(voice => 
+          voice.lang.startsWith(langCode) && 
+          !maleNameKeywords.some(keyword => 
+            voice.name.toLowerCase().includes(keyword.toLowerCase())
+          )
+        );
+        
+        if (potentialFemaleVoice) {
+          console.log("Sử dụng giọng có khả năng là nữ tiếng Việt:", potentialFemaleVoice.name);
+          return potentialFemaleVoice;
+        }
+      }
+      
+      // Dùng bất kỳ giọng tiếng Việt nào
+      const anyVietnameseVoice = availableVoices.find(voice => 
+        voice.lang.startsWith('vi')
+      );
+      
+      if (anyVietnameseVoice) {
+        console.log("Sử dụng giọng tiếng Việt dự phòng:", anyVietnameseVoice.name);
+        return anyVietnameseVoice;
+      }
+    }
+    
+    // Tìm giọng chất lượng cao đã biết
+    if (highQualityVoice) {
+      for (const voiceName of knownGoodVoices[language]) {
+        for (const langCode of preferredLanguageCodes[language]) {
+          const goodVoice = availableVoices.find(voice => 
+            voice.lang.startsWith(langCode) && 
+            voice.name.includes(voiceName)
+          )
+          if (goodVoice) return goodVoice
+        }
+      }
+    }
+    
+    // Ưu tiên giọng có chất lượng cao (thường là giọng không phải mặc định)
+    for (const langCode of preferredLanguageCodes[language]) {
+      const premiumVoice = availableVoices.find(voice => 
+        voice.lang.startsWith(langCode) && 
+        (voice.localService === true || voice.name.includes('Premium') || voice.name.includes('Natural'))
+      )
+      
+      if (premiumVoice) return premiumVoice
+    }
+    
+    // Nếu không tìm thấy giọng cao cấp, ưu tiên giọng không phải Google/Microsoft
+    for (const langCode of preferredLanguageCodes[language]) {
+      const naturalVoice = availableVoices.find(voice => 
+        voice.lang.startsWith(langCode) && 
+        !voice.name.includes('Google') &&
+        !voice.name.includes('Microsoft')
+      )
+      
+      if (naturalVoice) return naturalVoice
+    }
+    
+    // Nếu vẫn không tìm thấy, dùng bất kỳ giọng nào phù hợp
+    for (const langCode of preferredLanguageCodes[language]) {
+      const anyVoice = availableVoices.find(voice => voice.lang.startsWith(langCode))
+      if (anyVoice) return anyVoice
+    }
+    
+    // Nếu không tìm thấy giọng phù hợp với ngôn ngữ, trả về null
+    return null
+  }
+
+  // Cập nhật hàm speakText với nhiều cải tiến chất lượng giọng nói
   const speakText = (text: string) => {
-    if (!synth || !isSpeechEnabled) return
+    if (!synth || !isSpeechEnabled || !text) return
     
     // Clean text from HTML tags and markdown
     const cleanText = text.replace(/<[^>]*>?/gm, '').replace(/\[([^\]]+)\]\([^)]+\)/gm, '$1')
     
+    // Phát hiện ngôn ngữ của văn bản
+    const detectedLanguage = detectTextLanguage(cleanText)
+    
     // Create utterance
     const utterance = new SpeechSynthesisUtterance(cleanText)
-    utterance.lang = 'vi-VN' // Set to Vietnamese
+    
+    // Cài đặt ngôn ngữ và giọng nói phù hợp
+    if (detectedLanguage === 'en') {
+      // Tìm giọng tiếng Anh tốt nhất
+      const englishVoice = findBestVoice('en')
+      if (englishVoice) {
+        utterance.voice = englishVoice
+        console.log(`Using English voice: ${englishVoice.name}`)
+      }
+      utterance.lang = 'en-GB' // British English
+    } else {
+      // Tìm giọng tiếng Việt tốt nhất (sẽ là giọng nữ vì chúng ta đã ưu tiên trong hàm findBestVoice)
+      const vietnameseVoice = findBestVoice('vi')
+      if (vietnameseVoice) {
+        utterance.voice = vietnameseVoice
+        console.log(`Using Vietnamese voice: ${vietnameseVoice.name}`)
+      }
+      utterance.lang = 'vi-VN' // Vietnamese
+    }
+    
+    // Áp dụng các tham số chất lượng giọng nói từ cài đặt người dùng
+    utterance.rate = speechRate       // Tốc độ nói
+    utterance.pitch = speechPitch     // Cao độ giọng
+    utterance.volume = speechVolume   // Âm lượng
+    
+    // Áp dụng thêm các cài đặt đặc biệt cho trường hợp tiếng Anh
+    if (detectedLanguage === 'en') {
+      // Xử lý đặc biệt cho tiếng Anh để giúp giọng nói mượt mà hơn
+      cleanText.split('.').forEach((sentence, index, array) => {
+        if (sentence.trim() === '') return;
+        
+        // Tạo bản sao của cài đặt giọng nói
+        const sentenceUtterance = new SpeechSynthesisUtterance(sentence.trim() + '.')
+        sentenceUtterance.voice = utterance.voice
+        sentenceUtterance.lang = utterance.lang
+        sentenceUtterance.rate = utterance.rate
+        sentenceUtterance.pitch = utterance.pitch
+        sentenceUtterance.volume = utterance.volume
+        
+        // Thêm dừng nhẹ giữa các câu
+        if (index < array.length - 1) {
+          sentenceUtterance.onend = () => {
+            setTimeout(() => {
+              // Không làm gì, chỉ tạo khoảng dừng nhỏ
+            }, 100);
+          };
+        }
+        
+        synth.speak(sentenceUtterance)
+      })
+      
+      return // Đã xử lý từng câu riêng biệt, không cần tiếp tục
+    }
+    
+    // Hiển thị thông tin về văn bản đọc
+    console.log(`Speaking text: ${cleanText.substring(0, 50)}...`)
     
     // Stop any current speech
     synth.cancel()
@@ -176,6 +438,407 @@ export default function MatchSchedule({
       if (synth) synth.cancel()
     }
   }, [synth])
+
+  // Add new states for network error tracking after the isListening state
+  const [isListening, setIsListening] = useState(false)
+  const [recognitionSupported, setRecognitionSupported] = useState(false)
+  const [recognitionError, setRecognitionError] = useState<string | null>(null)
+  const [networkRetryCount, setNetworkRetryCount] = useState(0)
+  const [speechConfidence, setSpeechConfidence] = useState<number>(0)
+  const [advancedRecognition, setAdvancedRecognition] = useState(true)
+  const [isRecognitionSettingsOpen, setIsRecognitionSettingsOpen] = useState(false)
+  const [noiseReduction, setNoiseReduction] = useState(true)
+  const [autoLanguageDetection, setAutoLanguageDetection] = useState(true)
+  const [selectedLanguage, setSelectedLanguage] = useState("vi-VN")
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null)
+  const recognitionRef = useRef<any>(null)
+  const recognitionTimeoutRef = useRef<any>(null)
+  const transcriptsRef = useRef<string[]>([])
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+
+  // Check for browser support of speech recognition
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (SpeechRecognition) {
+      setRecognitionSupported(true)
+    }
+  }, [])
+
+  // Add function to detect language from text
+  const detectLanguage = (text: string): 'vi' | 'en' | null => {
+    if (!text || text.trim().length < 3) return null;
+    
+    // Check for common Vietnamese diacritical marks and characters
+    const vietnamesePattern = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i;
+    if (vietnamesePattern.test(text)) {
+      return 'vi';
+    }
+    
+    // Check for common Vietnamese words
+    const vietnameseWords = ['của', 'và', 'các', 'những', 'trong', 'thêm', 'trận', 'đấu', 'bóng', 'đội'];
+    for (const word of vietnameseWords) {
+      if (text.toLowerCase().includes(word)) {
+        return 'vi';
+      }
+    }
+    
+    // Check for common English words
+    const englishWords = ['the', 'and', 'for', 'with', 'match', 'team', 'add', 'football', 'game', 'score'];
+    let englishWordCount = 0;
+    for (const word of englishWords) {
+      if (text.toLowerCase().includes(` ${word} `)) {
+        englishWordCount++;
+      }
+    }
+    
+    if (englishWordCount >= 2) {
+      return 'en';
+    }
+    
+    // Default to null if we can't be sure
+    return null;
+  };
+
+  // Setup audio processing for noise reduction
+  const setupNoiseReduction = () => {
+    if (!noiseReduction) return null;
+    
+    try {
+      // Create audio context
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      
+      // Get user media with specific constraints for noise reduction
+      navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          // Advanced constraints for even better noise reduction
+          ...(typeof window !== 'undefined' && {
+            channelCount: 1,
+            sampleRate: 48000,
+          }),
+        },
+        video: false
+      }).then(stream => {
+        if (!audioContextRef.current) return;
+        
+        // Create source node from microphone stream
+        const source = audioContextRef.current.createMediaStreamSource(stream);
+        
+        // Create analyser node
+        const analyser = audioContextRef.current.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0.8;
+        analyserRef.current = analyser;
+        
+        // Connect source to analyser
+        source.connect(analyser);
+        
+        // Create dynamic compressor for noise reduction
+        const compressor = audioContextRef.current.createDynamicsCompressor();
+        compressor.threshold.value = -50;
+        compressor.knee.value = 40;
+        compressor.ratio.value = 12;
+        compressor.attack.value = 0;
+        compressor.release.value = 0.25;
+        
+        // Connect analyser to compressor
+        analyser.connect(compressor);
+        
+        // Connect compressor to destination (output)
+        // Only for monitoring, speech recognition still uses raw input
+        // compressor.connect(audioContextRef.current.destination);
+        
+        console.log("Noise reduction setup completed");
+      }).catch(err => {
+        console.error("Error accessing microphone for noise reduction:", err);
+      });
+      
+      return () => {
+        // Cleanup when component unmounts or settings change
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+          audioContextRef.current = null;
+        }
+        analyserRef.current = null;
+      };
+    } catch (error) {
+      console.error("Error setting up noise reduction:", error);
+      return null;
+    }
+  };
+
+  // Setup audio context when noise reduction setting changes
+  useEffect(() => {
+    if (noiseReduction) {
+      const cleanup = setupNoiseReduction();
+      return () => {
+        if (cleanup) cleanup();
+      };
+    } else if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+      analyserRef.current = null;
+    }
+  }, [noiseReduction]);
+
+  // Enhance the processTranscribedText function to handle language-specific processing
+  const processTranscribedText = (text: string, languageHint?: 'vi' | 'en'): string => {
+    if (!text) return text;
+    
+    // Try to detect language if not provided
+    const lang = languageHint || (autoLanguageDetection ? detectLanguage(text) : null) || (selectedLanguage === 'vi-VN' ? 'vi' : 'en');
+    
+    // Update detected language state for UI feedback
+    if (lang !== (detectedLanguage || (selectedLanguage === 'vi-VN' ? 'vi' : 'en'))) {
+      setDetectedLanguage(lang);
+    }
+    
+    // Different processing for different languages
+    if (lang === 'vi') {
+      // Vietnamese processing
+
+      // Capitalize first letter of sentences
+      const withCapitalizedSentences = text.replace(/(^\s*\w|[.!?]\s*\w)/g, match => match.toUpperCase());
+      
+      // Fix common Vietnamese speech recognition errors
+      let processedText = withCapitalizedSentences;
+      
+      // Fix spacing around punctuation
+      processedText = processedText
+        .replace(/\s+([.,;:!?])/g, '$1')
+        .replace(/([.,;:!?])\s+/g, '$1 ')
+        .replace(/\s+/g, ' ');
+      
+      // Fix Vietnamese diacritics issues commonly misinterpreted
+      const diacriticsMap: Record<string, string> = {
+        'voi': 'với',
+        'the': 'thế',
+        'da': 'đá',
+        'cau': 'câu',
+        'tran': 'trận',
+        'dau': 'đấu',
+        'hoi': 'hỏi',
+        'thang': 'thắng',
+        'toi': 'tôi',
+        'muon': 'muốn',
+        'them': 'thêm',
+        'xoa': 'xóa',
+      };
+      
+      // Replace common misrecognized words with proper Vietnamese diacritics
+      Object.keys(diacriticsMap).forEach(key => {
+        // Check if the word appears as a whole word (with word boundaries)
+        const regex = new RegExp(`\\b${key}\\b`, 'gi');
+        processedText = processedText.replace(regex, diacriticsMap[key]);
+      });
+      
+      // Special handling for common sports-related phrases
+      if (processedText.toLowerCase().includes('them tran') || processedText.toLowerCase().includes('thêm trân')) {
+        processedText = processedText.replace(/them tran|thêm trân/gi, 'thêm trận');
+      }
+      
+      if (processedText.toLowerCase().includes('thi dau')) {
+        processedText = processedText.replace(/thi dau/gi, 'thi đấu');
+      }
+      
+      // More contextual fixes for football terms
+      if (processedText.toLowerCase().includes('ban thang')) {
+        processedText = processedText.replace(/ban thang/gi, 'bàn thắng');
+      }
+      
+      if (processedText.toLowerCase().includes('tap am')) {
+        processedText = processedText.replace(/tap am/gi, 'tạp âm');
+      }
+      
+      return processedText.trim();
+    } else {
+      // English processing
+      const processedText = text
+        .replace(/(^\s*\w|[.!?]\s*\w)/g, match => match.toUpperCase()) // Capitalize first letter of sentences
+        .replace(/\s+([.,;:!?])/g, '$1') // Fix spacing before punctuation
+        .replace(/([.,;:!?])\s+/g, '$1 ') // Fix spacing after punctuation
+        .replace(/\s+/g, ' '); // Remove extra spaces
+      
+      return processedText.trim();
+    }
+  };
+
+  // Update toggleListening function to include language detection and noise reduction
+  const toggleListening = (inputType: 'sidebar' | 'dialog') => {
+    if (isListening) {
+      // Stop listening
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      
+      // Clear any pending timeouts
+      if (recognitionTimeoutRef.current) {
+        clearTimeout(recognitionTimeoutRef.current);
+        recognitionTimeoutRef.current = null;
+      }
+      
+      setIsListening(false);
+      transcriptsRef.current = [];
+      setDetectedLanguage(null);
+      return;
+    }
+
+    // Reset error state when starting new recognition
+    setRecognitionError(null);
+    setSpeechConfidence(0);
+    transcriptsRef.current = [];
+    setDetectedLanguage(null);
+    
+    // Start listening
+    try {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        setRecognitionError("Trình duyệt của bạn không hỗ trợ nhận dạng giọng nói");
+        return;
+      }
+      
+      const recognition = new SpeechRecognition();
+      
+      // Enhanced recognition settings for better accuracy
+      recognition.lang = selectedLanguage; // Use selected language
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = advancedRecognition ? 5 : 1; // Increased from 3 to 5 for better alternates
+      
+      // Set a listening timeout for session management
+      if (advancedRecognition) {
+        recognitionTimeoutRef.current = setTimeout(() => {
+          if (recognitionRef.current) {
+            // Restart recognition for continuous listening with longer context
+            recognitionRef.current.stop();
+            // Small delay before restarting
+            setTimeout(() => {
+              if (isListening) toggleListening(inputType);
+            }, 300);
+          }
+        }, 15000);
+      }
+      
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        let highestConfidence = 0;
+        let bestAlternativeText = '';
+        
+        // Process results, looking for both interim and final
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          
+          // Check if we have detected a language different from current setting
+          if (result.length > 0 && autoLanguageDetection && result[0].transcript) {
+            const detectedLang = detectLanguage(result[0].transcript);
+            
+            // Switch language if detected different from current
+            if (detectedLang && 
+               ((detectedLang === 'en' && selectedLanguage !== 'en-US') || 
+                (detectedLang === 'vi' && selectedLanguage !== 'vi-VN'))) {
+              
+              // Set new language
+              const newLang = detectedLang === 'en' ? 'en-US' : 'vi-VN';
+              setSelectedLanguage(newLang);
+              
+              // Restart recognition with new language after this batch completes
+              setTimeout(() => {
+                if (isListening) {
+                  if (recognitionRef.current) {
+                    recognitionRef.current.stop();
+                  }
+                  setTimeout(() => toggleListening(inputType), 300);
+                }
+              }, 1000);
+            }
+          }
+          
+          // Check if this is a final result
+          if (result.isFinal) {
+            if (advancedRecognition && result.length > 1) {
+              // If we have alternatives, find the one with highest confidence
+              for (let j = 0; j < result.length; j++) {
+                if (result[j].confidence > highestConfidence) {
+                  highestConfidence = result[j].confidence;
+                  bestAlternativeText = result[j].transcript;
+                }
+              }
+              // Use the best alternative if confidence is high enough
+              if (highestConfidence > 0.7) {
+                finalTranscript += bestAlternativeText + ' ';
+              } else {
+                finalTranscript += result[0].transcript + ' ';
+              }
+            } else {
+              finalTranscript += result[0].transcript + ' ';
+            }
+            
+            // Store confidence for feedback
+            if (result[0].confidence) {
+              setSpeechConfidence(Math.round(result[0].confidence * 100));
+            }
+            
+            // Add to transcript history for context
+            transcriptsRef.current.push(finalTranscript);
+            
+            // Keep a maximum of 3 last sentences for context (avoiding too long context)
+            if (transcriptsRef.current.length > 3) {
+              transcriptsRef.current = transcriptsRef.current.slice(-3);
+            }
+          } else {
+            // For interim results, just display them as-is
+            interimTranscript += result[0].transcript + ' ';
+          }
+        }
+        
+        // Create final output by combining all transcripts (for context)
+        let outputText = transcriptsRef.current.join(' ');
+        
+        // Add current interim transcript if available
+        if (interimTranscript) {
+          outputText += ' ' + interimTranscript;
+        }
+        
+        // Check for language to apply appropriate processing
+        const langHint = selectedLanguage.startsWith('vi') ? 'vi' : 'en';
+        
+        // Apply intelligent text processing if we have text
+        if (outputText.trim()) {
+          outputText = processTranscribedText(outputText, langHint);
+        }
+        
+        // Giới hạn độ dài văn bản
+        if (outputText.length > 500) {
+          outputText = outputText.substring(0, 500);
+        }
+        
+        // Update the appropriate input field
+        if (inputType === 'sidebar') {
+          setAiQuestion(outputText);
+        } else {
+          setChatDialogQuestion(outputText);
+        }
+      };
+      
+      // Other event handlers... (keep existing ones)
+      
+      // Start the recognition
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsListening(true);
+    } catch (error) {
+      console.error('Speech recognition failed:', error);
+      setRecognitionError("Không thể khởi tạo nhận dạng giọng nói. Vui lòng kiểm tra trình duyệt của bạn.");
+      setIsListening(false);
+    }
+  };
 
   const handleAddMatch = () => {
     setEditingMatch({
@@ -1141,6 +1804,300 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
     }
   }
 
+  // Add recognition settings dialog
+  const RecognitionSettingsDialog = () => {
+    return (
+      <Dialog open={isRecognitionSettingsOpen} onOpenChange={setIsRecognitionSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cài đặt nhận dạng giọng nói</DialogTitle>
+            <DialogDescription>
+              Điều chỉnh các tùy chọn để cải thiện độ chính xác của nhận dạng giọng nói
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="advanced-recognition">Nhận dạng nâng cao</Label>
+                <p className="text-sm text-muted-foreground">
+                  Sử dụng thuật toán nâng cao để cải thiện độ chính xác
+                </p>
+              </div>
+              <Switch
+                id="advanced-recognition"
+                checked={advancedRecognition}
+                onCheckedChange={setAdvancedRecognition}
+              />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="noise-reduction">Lọc tạp âm</Label>
+                <p className="text-sm text-muted-foreground">
+                  Giảm tiếng ồn và tạp âm môi trường
+                </p>
+              </div>
+              <Switch
+                id="noise-reduction"
+                checked={noiseReduction}
+                onCheckedChange={setNoiseReduction}
+              />
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="auto-language">Tự động nhận dạng ngôn ngữ</Label>
+                <p className="text-sm text-muted-foreground">
+                  Tự động chuyển đổi giữa tiếng Việt và tiếng Anh
+                </p>
+              </div>
+              <Switch
+                id="auto-language"
+                checked={autoLanguageDetection}
+                onCheckedChange={setAutoLanguageDetection}
+              />
+            </div>
+            
+            <div className="pt-2">
+              <Label className="mb-2 block">Ngôn ngữ mặc định</Label>
+              <Select 
+                value={selectedLanguage}
+                onValueChange={setSelectedLanguage}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Chọn ngôn ngữ" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="vi-VN">Tiếng Việt (Việt Nam)</SelectItem>
+                  <SelectItem value="en-US">English (United States)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {speechConfidence > 0 && (
+              <div className="pt-2">
+                <Label className="mb-2 block">Độ tin cậy nhận dạng gần nhất</Label>
+                <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full ${
+                      speechConfidence > 80 ? 'bg-green-500' : 
+                      speechConfidence > 60 ? 'bg-yellow-500' : 'bg-red-500'
+                    }`} 
+                    style={{width: `${speechConfidence}%`}}
+                  ></div>
+                </div>
+                <p className="text-sm text-right mt-1">{speechConfidence}%</p>
+              </div>
+            )}
+          </div>
+          
+          <div className="flex justify-end">
+            <Button onClick={() => setIsRecognitionSettingsOpen(false)}>
+              Đóng
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+  // Thêm state để theo dõi số ký tự
+  const [aiQuestionLength, setAiQuestionLength] = useState(0)
+  const [chatDialogQuestionLength, setChatDialogQuestionLength] = useState(0)
+  const MAX_PROMPT_LENGTH = 500
+
+  // Component cài đặt giọng nói
+  const VoiceSettingsDialog = () => {
+    // Nhóm các giọng nói theo ngôn ngữ
+    const englishVoices = availableVoices.filter(voice => voice.lang.startsWith('en'))
+    const vietnameseVoices = availableVoices.filter(voice => voice.lang.startsWith('vi'))
+    
+    // Xử lý thay đổi tốc độ nói
+    const handleRateChange = (value: number) => {
+      setSpeechRate(value)
+    }
+    
+    // Xử lý thay đổi cao độ giọng
+    const handlePitchChange = (value: number) => {
+      setSpeechPitch(value)
+    }
+    
+    // Xử lý thay đổi âm lượng
+    const handleVolumeChange = (value: number) => {
+      setSpeechVolume(value)
+    }
+    
+    // Phát mẫu để kiểm tra giọng nói
+    const speakSample = (language: 'en' | 'vi') => {
+      const sampleText = language === 'en' 
+        ? "This is a sample of the English voice. How does it sound to you?" 
+        : "Đây là mẫu giọng nói tiếng Việt. Bạn nghe thấy như thế nào?";
+      
+      speakText(sampleText)
+    }
+    
+    return (
+      <Dialog open={isVoiceSettingsOpen} onOpenChange={setIsVoiceSettingsOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Cài đặt giọng nói</DialogTitle>
+            <DialogDescription>
+              Điều chỉnh các tham số để có giọng nói dễ nghe nhất
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Cài đặt chất lượng giọng nói */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="high-quality">Sử dụng giọng chất lượng cao</Label>
+                <p className="text-sm text-muted-foreground">
+                  Ưu tiên giọng tự nhiên và chất lượng cao hơn
+                </p>
+              </div>
+              <Switch
+                id="high-quality"
+                checked={highQualityVoice}
+                onCheckedChange={setHighQualityVoice}
+              />
+            </div>
+            
+            {/* Tốc độ nói */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="rate-slider">Tốc độ nói</Label>
+                <span className="text-sm font-medium">{speechRate.toFixed(1)}x</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-muted-foreground">Chậm</span>
+                <Slider 
+                  id="rate-slider"
+                  min={0.5} 
+                  max={1.5} 
+                  step={0.1} 
+                  value={[speechRate]} 
+                  onValueChange={(values) => handleRateChange(values[0])} 
+                />
+                <span className="text-xs text-muted-foreground">Nhanh</span>
+              </div>
+            </div>
+            
+            {/* Cao độ giọng */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="pitch-slider">Cao độ giọng</Label>
+                <span className="text-sm font-medium">{speechPitch.toFixed(1)}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-muted-foreground">Thấp</span>
+                <Slider 
+                  id="pitch-slider"
+                  min={0.8} 
+                  max={1.2} 
+                  step={0.1} 
+                  value={[speechPitch]} 
+                  onValueChange={(values) => handlePitchChange(values[0])} 
+                />
+                <span className="text-xs text-muted-foreground">Cao</span>
+              </div>
+            </div>
+            
+            {/* Âm lượng */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="volume-slider">Âm lượng</Label>
+                <span className="text-sm font-medium">{Math.round(speechVolume * 100)}%</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-muted-foreground">Nhỏ</span>
+                <Slider 
+                  id="volume-slider"
+                  min={0.1} 
+                  max={1.0} 
+                  step={0.1} 
+                  value={[speechVolume]} 
+                  onValueChange={(values) => handleVolumeChange(values[0])} 
+                />
+                <span className="text-xs text-muted-foreground">Lớn</span>
+              </div>
+            </div>
+            
+            {/* Chọn giọng tiếng Anh */}
+            <div className="space-y-2">
+              <Label>Chọn giọng tiếng Anh</Label>
+              {englishVoices.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {englishVoices.map(voice => (
+                    <Button
+                      key={voice.voiceURI}
+                      variant={preferredEnglishVoice === voice.voiceURI ? "default" : "outline"}
+                      className="justify-start"
+                      onClick={() => setPreferredEnglishVoice(voice.voiceURI)}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span>{voice.name}</span>
+                        <span className="text-xs text-muted-foreground">{voice.lang}</span>
+                      </div>
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Không tìm thấy giọng tiếng Anh</p>
+              )}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => speakSample('en')}
+                className="mt-2"
+              >
+                <Volume2 className="h-4 w-4 mr-2" /> Kiểm tra giọng tiếng Anh
+              </Button>
+            </div>
+            
+            {/* Chọn giọng tiếng Việt */}
+            <div className="space-y-2">
+              <Label>Chọn giọng tiếng Việt</Label>
+              {vietnameseVoices.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {vietnameseVoices.map(voice => (
+                    <Button
+                      key={voice.voiceURI}
+                      variant={preferredVietnameseVoice === voice.voiceURI ? "default" : "outline"}
+                      className="justify-start"
+                      onClick={() => setPreferredVietnameseVoice(voice.voiceURI)}
+                    >
+                      <div className="flex flex-col items-start">
+                        <span>{voice.name}</span>
+                        <span className="text-xs text-muted-foreground">{voice.lang}</span>
+                      </div>
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Không tìm thấy giọng tiếng Việt</p>
+              )}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => speakSample('vi')}
+                className="mt-2"
+              >
+                <Volume2 className="h-4 w-4 mr-2" /> Kiểm tra giọng tiếng Việt
+              </Button>
+            </div>
+          </div>
+          
+          <div className="mt-4 flex justify-end">
+            <Button onClick={() => setIsVoiceSettingsOpen(false)}>
+              Đóng
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
   return (
     <div className="relative flex h-[calc(100vh-4rem)]">
       {/* Main Content */}
@@ -1733,6 +2690,17 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
                 <Bot className="h-4 w-4 mr-1" />
                 Chat AI
               </Button>
+              {recognitionSupported && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex items-center"
+                  onClick={() => setIsRecognitionSettingsOpen(true)}
+                >
+                  <Settings className="h-4 w-4 mr-1" />
+                  Tùy chỉnh voice
+                </Button>
+              )}
               <input 
                 type="file" 
                 ref={fileInputRef}
@@ -1741,15 +2709,83 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
                 onChange={handleFileChange}
               />
             </div>
+            {recognitionError && (
+              <div className="mb-2 text-sm text-red-500 flex items-center">
+                <XCircle className="h-4 w-4 mr-1" /> {recognitionError}
+              </div>
+            )}
+            {isListening && speechConfidence > 0 && (
+              <div className="mb-2 flex items-center">
+                <div className="w-full mr-2">
+                  <div className="h-1 w-full bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full ${
+                        speechConfidence > 80 ? 'bg-green-500' : 
+                        speechConfidence > 60 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`} 
+                      style={{width: `${speechConfidence}%`}}
+                    ></div>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-500">{speechConfidence}%</span>
+              </div>
+            )}
             <div className="flex space-x-2">
-              <Input
-                placeholder="Hỏi AI về lịch thi đấu, đội bóng, hoặc thông tin bóng đá..."
-                value={aiQuestion}
-                onChange={(e) => setAiQuestion(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && askAI()}
-                disabled={isAiLoading}
-              />
-              <Button onClick={askAI} disabled={isAiLoading}>
+              <div className="relative flex-1">
+                <Textarea
+                  placeholder="Hỏi AI về lịch thi đấu, đội bóng, hoặc thông tin bóng đá..."
+                  value={aiQuestion}
+                  onChange={(e) => {
+                    // Giới hạn độ dài văn bản nhập vào
+                    const text = e.target.value;
+                    if (text.length <= MAX_PROMPT_LENGTH) {
+                      setAiQuestion(text);
+                      setAiQuestionLength(text.length);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      askAI();
+                    }
+                  }}
+                  disabled={isAiLoading}
+                  className="pr-10 min-h-[80px] resize-none"
+                  rows={3}
+                  maxLength={MAX_PROMPT_LENGTH}
+                />
+                {recognitionSupported && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={`absolute right-2 top-4 h-8 w-8 p-0 
+                      ${isListening ? 'text-red-500 animate-pulse' : ''} 
+                      ${recognitionError && !isListening ? 'text-red-400' : ''}`}
+                    onClick={() => toggleListening('sidebar')}
+                    title={
+                      isListening 
+                        ? `Dừng ghi âm (${detectedLanguage === 'en' ? 'Tiếng Anh' : 'Tiếng Việt'})` 
+                        : "Ghi âm giọng nói"
+                    }
+                    disabled={networkRetryCount >= 3}
+                  >
+                    <div className="relative">
+                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {isListening && detectedLanguage && (
+                        <div className="absolute top-0 right-0 -mt-1 -mr-1 w-2 h-2 rounded-full bg-blue-500" />
+                      )}
+                      {isListening && noiseReduction && (
+                        <div className="absolute bottom-0 right-0 -mb-1 -mr-1 w-2 h-2 rounded-full bg-green-500" />
+                      )}
+                    </div>
+                  </Button>
+                )}
+                <div className="absolute right-10 bottom-2 text-xs text-gray-400">
+                  {aiQuestionLength}/{MAX_PROMPT_LENGTH}
+                </div>
+              </div>
+              <Button onClick={askAI} disabled={isAiLoading} className="self-start">
                 <Send className="h-4 w-4" />
               </Button>
             </div>
@@ -1770,20 +2806,33 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
       <Dialog open={isChatDialogOpen} onOpenChange={setIsChatDialogOpen}>
         <DialogContent className="max-w-lg h-[80vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
-              <div className="flex items-center">
-                <Bot className="h-5 w-5 mr-2" />
-                Chat với AI
+            <DialogTitle>
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center">
+                  <Bot className="h-5 w-5 mr-2" />
+                  Chat với AI
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-8 w-8 p-0" 
+                    onClick={() => setIsVoiceSettingsOpen(true)}
+                    title="Cài đặt giọng nói"
+                  >
+                    <Volume2 className="h-4 w-4" />
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-8 w-8 p-0" 
+                    onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
+                    title={isSpeechEnabled ? "Tắt phát âm" : "Bật phát âm"}
+                  >
+                    {isSpeechEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                  </Button>
+                </div>
               </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 w-8 p-0" 
-                onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
-                title={isSpeechEnabled ? "Tắt phát âm" : "Bật phát âm"}
-              >
-                {isSpeechEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-              </Button>
             </DialogTitle>
             <DialogDescription>
               Sử dụng API key mặc định hoặc nhập API key của bạn để trò chuyện với AI
@@ -1903,20 +2952,90 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
           </div>
           
           {/* Input area */}
-          <div className="mt-4 flex space-x-2">
-            <Input
-              placeholder="Nhập câu hỏi của bạn"
-              value={chatDialogQuestion}
-              onChange={(e) => setChatDialogQuestion(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleChatDialogQuestion()}
-              disabled={isAiLoading}
-            />
-            <Button 
-              onClick={handleChatDialogQuestion} 
-              disabled={isAiLoading || !chatDialogQuestion.trim()}
-            >
-              <Send className="h-4 w-4" />
-            </Button>
+          <div className="mt-4 flex flex-col space-y-2">
+            {recognitionError && (
+              <div className="text-sm text-red-500 flex items-center">
+                <XCircle className="h-4 w-4 mr-1" /> {recognitionError}
+              </div>
+            )}
+            {isListening && speechConfidence > 0 && (
+              <div className="flex items-center mb-1">
+                <div className="w-full mr-2">
+                  <div className="h-1 w-full bg-gray-200 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full ${
+                        speechConfidence > 80 ? 'bg-green-500' : 
+                        speechConfidence > 60 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`} 
+                      style={{width: `${speechConfidence}%`}}
+                    ></div>
+                  </div>
+                </div>
+                <span className="text-xs text-gray-500">{speechConfidence}%</span>
+              </div>
+            )}
+            <div className="flex space-x-2">
+              <div className="relative flex-1">
+                <Textarea
+                  placeholder="Nhập câu hỏi của bạn"
+                  value={chatDialogQuestion}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    if (text.length <= MAX_PROMPT_LENGTH) {
+                      setChatDialogQuestion(text);
+                      setChatDialogQuestionLength(text.length);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleChatDialogQuestion();
+                    }
+                  }}
+                  disabled={isAiLoading}
+                  className="pr-10 min-h-[80px] resize-none"
+                  rows={3}
+                  maxLength={MAX_PROMPT_LENGTH}
+                />
+                {recognitionSupported && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={`absolute right-2 top-4 h-8 w-8 p-0 
+                      ${isListening ? 'text-red-500 animate-pulse' : ''} 
+                      ${recognitionError && !isListening ? 'text-red-400' : ''}`}
+                    onClick={() => toggleListening('dialog')}
+                    title={
+                      isListening 
+                        ? `Dừng ghi âm (${detectedLanguage === 'en' ? 'Tiếng Anh' : 'Tiếng Việt'})` 
+                        : "Ghi âm giọng nói"
+                    }
+                    disabled={networkRetryCount >= 3}
+                  >
+                    <div className="relative">
+                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {isListening && detectedLanguage && (
+                        <div className="absolute top-0 right-0 -mt-1 -mr-1 w-2 h-2 rounded-full bg-blue-500" />
+                      )}
+                      {isListening && noiseReduction && (
+                        <div className="absolute bottom-0 right-0 -mb-1 -mr-1 w-2 h-2 rounded-full bg-green-500" />
+                      )}
+                    </div>
+                  </Button>
+                )}
+                <div className="absolute right-10 bottom-2 text-xs text-gray-400">
+                  {chatDialogQuestionLength}/{MAX_PROMPT_LENGTH}
+                </div>
+              </div>
+              <Button 
+                onClick={handleChatDialogQuestion} 
+                disabled={isAiLoading || !chatDialogQuestion.trim()}
+                className="self-start"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -2086,6 +3205,12 @@ Việc của bạn là hiểu ý định của người dùng và thực hiện 
           onSaveEvents={handleSaveEvents}
         />
       )}
+
+      {/* Recognition settings dialog */}
+      <RecognitionSettingsDialog />
+      
+      {/* Voice settings dialog */}
+      <VoiceSettingsDialog />
     </div>
   )
 }
